@@ -8,6 +8,7 @@ import {
   useState,
   type DragEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import type {
   Flashcard,
   QuestionType,
@@ -716,6 +717,66 @@ function questionMatchesDifficulty(
   return (q.difficulty ?? "medium") === difficulty;
 }
 
+/**
+ * Picks up to `requested` questions from the topic pool. If strict
+ * (difficulty + format) matches are fewer than requested, progressively
+ * relaxes filters so the run can still reach the requested count when the bank
+ * allows — then shuffles so the set is not always the same slice order.
+ */
+function pickQuestionsForQuizRun(
+  topicPool: QuizQuestion[],
+  settings: QuizSettings,
+  requested: number
+): {
+  questions: QuizQuestion[];
+  strictMatchCount: number;
+  relaxedPoolSize: number;
+  usedRelaxation: boolean;
+} {
+  const formats = settings.questionFormats ?? ["mixed"];
+  const difficulty = settings.difficulty;
+
+  const strict = topicPool.filter(
+    (q) =>
+      questionMatchesDifficulty(q, difficulty) &&
+      questionMatchesFormats(q.type, formats)
+  );
+  const byDifficulty = topicPool.filter((q) =>
+    questionMatchesDifficulty(q, difficulty)
+  );
+  const byFormat = topicPool.filter((q) =>
+    questionMatchesFormats(q.type, formats)
+  );
+
+  let source: QuizQuestion[];
+  let usedRelaxation: boolean;
+
+  if (strict.length >= requested) {
+    source = strict;
+    usedRelaxation = false;
+  } else if (byDifficulty.length >= requested) {
+    source = byDifficulty;
+    usedRelaxation = true;
+  } else if (byFormat.length >= requested) {
+    source = byFormat;
+    usedRelaxation = true;
+  } else {
+    source = topicPool;
+    usedRelaxation =
+      topicPool.length > strict.length || strict.length < requested;
+  }
+
+  const shuffled = shuffleArray(source);
+  const questions = shuffled.slice(0, Math.min(requested, shuffled.length));
+
+  return {
+    questions,
+    strictMatchCount: strict.length,
+    relaxedPoolSize: source.length,
+    usedRelaxation,
+  };
+}
+
 function formatSavedQuizDate(iso: string): string {
   try {
     const d = new Date(iso);
@@ -1124,18 +1185,18 @@ function QuizSettingsPanel({
                     });
                   }
                 }}
-                className="space-y-3"
+                className="grid grid-cols-2 gap-3"
               >
                 <label
                   className={cn(
-                    "flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors",
+                    "flex min-h-full min-w-0 cursor-pointer gap-2 rounded-lg border p-3 text-sm transition-colors sm:gap-3",
                     scopeMode === "all"
                       ? "border-primary/50 bg-primary/5"
                       : "border-border/70 hover:border-primary/30"
                   )}
                 >
                   <RadioGroupItem value="all" className="mt-0.5 shrink-0" />
-                  <span>
+                  <span className="min-w-0">
                     <span className="font-medium text-foreground">
                       All topics in study
                     </span>
@@ -1148,14 +1209,14 @@ function QuizSettingsPanel({
                 </label>
                 <label
                   className={cn(
-                    "flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors",
+                    "flex min-h-full min-w-0 cursor-pointer gap-2 rounded-lg border p-3 text-sm transition-colors sm:gap-3",
                     scopeMode === "custom"
                       ? "border-primary/50 bg-primary/5"
                       : "border-border/70 hover:border-primary/30"
                   )}
                 >
                   <RadioGroupItem value="custom" className="mt-0.5 shrink-0" />
-                  <span>
+                  <span className="min-w-0">
                     <span className="font-medium text-foreground">
                       Choose topics
                     </span>
@@ -1283,6 +1344,16 @@ function QuizSettingsPanel({
 // Question Card
 // ---------------------------------------------------------------------------
 
+/** Correct / incorrect answer control colors (override default primary). */
+const quizCorrectControlClass =
+  "border-green-500 data-checked:border-green-600 data-checked:bg-green-600 dark:data-checked:bg-green-600 [&_[data-slot=radio-group-indicator]_span]:bg-white";
+const quizWrongControlClass =
+  "border-red-500 data-checked:border-red-600 data-checked:bg-red-600 dark:data-checked:bg-red-600 [&_[data-slot=radio-group-indicator]_span]:bg-white";
+const quizCorrectCheckboxClass =
+  "border-green-500 data-checked:border-green-600 data-checked:bg-green-600 data-checked:text-white dark:data-checked:bg-green-600";
+const quizWrongCheckboxClass =
+  "border-red-500 data-checked:border-red-600 data-checked:bg-red-600 data-checked:text-white dark:data-checked:bg-red-600";
+
 function QuestionCard({
   question,
   index,
@@ -1310,8 +1381,41 @@ function QuestionCard({
   const [showResult, setShowResult] = useState(
     () => resumeAnswer?.revealed ?? false
   );
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [removePanelPos, setRemovePanelPos] = useState({ top: 0, right: 0 });
+  const removeTriggerRef = useRef<HTMLButtonElement>(null);
+  const questionCardRef = useRef<HTMLDivElement>(null);
 
   const firstRevealSentRef = useRef(!!resumeAnswer?.revealed);
+
+  const openRemoveConfirm = useCallback(() => {
+    const trigger = removeTriggerRef.current;
+    const card = questionCardRef.current;
+    if (trigger && card) {
+      const r = trigger.getBoundingClientRect();
+      const c = card.getBoundingClientRect();
+      const w = 220;
+      const vw = window.innerWidth;
+      // Above trash (-translate-y-full). Horizontally: align popover's right edge to the
+      // question card's right edge so it sits on the right side of the card (not viewport-left).
+      const alignToCardRight = vw - c.right;
+      const maxRightBeforeLeftOverflow = vw - w - 8;
+      setRemovePanelPos({
+        top: r.top - 6,
+        right: Math.max(0, Math.min(alignToCardRight, maxRightBeforeLeftOverflow)),
+      });
+    }
+    setRemoveConfirmOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!removeConfirmOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRemoveConfirmOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [removeConfirmOpen]);
 
   useEffect(() => {
     onAnswerSnapshot?.(question.id, {
@@ -1369,7 +1473,7 @@ function QuestionCard({
   };
 
   return (
-    <div className="rounded-xl border bg-white p-5">
+    <div ref={questionCardRef} className="rounded-xl border bg-white p-5">
       <div className="mb-3 flex items-center gap-2">
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
           {index + 1}
@@ -1415,7 +1519,19 @@ function QuestionCard({
                     : "hover:border-primary/30"
               )}
             >
-              <RadioGroupItem value={option} disabled={showResult} />
+              <RadioGroupItem
+                value={option}
+                disabled={showResult}
+                className={cn(
+                  showResult &&
+                    option === question.correctAnswer &&
+                    quizCorrectControlClass,
+                  showResult &&
+                    option === selectedAnswer &&
+                    option !== question.correctAnswer &&
+                    quizWrongControlClass
+                )}
+              />
               {option}
             </label>
           ))}
@@ -1446,6 +1562,15 @@ function QuestionCard({
                 <Checkbox
                   checked={checked}
                   disabled={showResult}
+                  className={cn(
+                    showResult &&
+                      correctArr.includes(option) &&
+                      quizCorrectCheckboxClass,
+                    showResult &&
+                      checked &&
+                      !correctArr.includes(option) &&
+                      quizWrongCheckboxClass
+                  )}
                   onCheckedChange={(isChecked) => {
                     const current = Array.isArray(selectedAnswer)
                       ? selectedAnswer
@@ -1544,19 +1669,79 @@ function QuestionCard({
               <Pencil className="h-4 w-4" />
             </Button>
             <Button
+              ref={removeTriggerRef}
               type="button"
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground hover:text-destructive"
               title="Remove question"
               aria-label="Remove question"
-              onClick={() => onRemoveQuestion?.()}
+              aria-expanded={removeConfirmOpen}
+              aria-haspopup="dialog"
+              onClick={openRemoveConfirm}
             >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
         </div>
       )}
+
+      {removeConfirmOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[100] bg-transparent"
+              aria-hidden
+              onClick={() => setRemoveConfirmOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={`remove-question-${question.id}`}
+              className="fixed z-[101] w-[220px] -translate-y-full rounded-lg border border-border bg-popover p-3 text-left shadow-lg"
+              style={{
+                top: removePanelPos.top,
+                right: removePanelPos.right,
+                left: "auto",
+              }}
+            >
+              <p
+                id={`remove-question-${question.id}`}
+                className="text-xs font-medium text-foreground"
+              >
+                Remove this question?
+              </p>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                It disappears from this run only.
+              </p>
+              <div className="mt-3 flex justify-end gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setRemoveConfirmOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => {
+                    onRemoveQuestion?.();
+                    setRemoveConfirmOpen(false);
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            </div>
+          </>,
+          document.body
+        )}
     </div>
   );
 }
@@ -1592,8 +1777,10 @@ function QuizView({
       return {
         questions,
         requested: n,
-        available: n,
         shown: n,
+        exactMatchCount: n,
+        relaxedPoolSize: n,
+        usedRelaxation: false,
         topicCount: n,
         difficultyCount: n,
         emptyReason:
@@ -1602,7 +1789,6 @@ function QuizView({
     }
 
     const topicSet = new Set(settings.selectedTopics);
-    const formats = settings.questionFormats ?? ["mixed"];
     const difficulty = settings.difficulty;
 
     const topicPool = sampleQuizQuestions.filter(
@@ -1611,34 +1797,47 @@ function QuizView({
     const difficultyPool = topicPool.filter((q) =>
       questionMatchesDifficulty(q, difficulty)
     );
-    const pool = difficultyPool.filter((q) =>
-      questionMatchesFormats(q.type, formats)
-    );
 
     const requested = settings.questionCount;
-    const available = pool.length;
-    const shown = Math.min(requested, available);
-    const questions = pool.slice(0, shown);
+
+    if (topicPool.length === 0) {
+      return {
+        questions: [],
+        requested,
+        shown: 0,
+        exactMatchCount: 0,
+        relaxedPoolSize: 0,
+        usedRelaxation: false,
+        topicCount: 0,
+        difficultyCount: 0,
+        emptyReason: "no-topics" as const,
+      };
+    }
+
+    const picked = pickQuestionsForQuizRun(topicPool, settings, requested);
 
     return {
-      questions,
+      questions: picked.questions,
       requested,
-      available,
-      shown,
+      shown: picked.questions.length,
+      exactMatchCount: picked.strictMatchCount,
+      relaxedPoolSize: picked.relaxedPoolSize,
+      usedRelaxation: picked.usedRelaxation,
       topicCount: topicPool.length,
       difficultyCount: difficultyPool.length,
-      emptyReason:
-        topicPool.length === 0
-          ? ("no-topics" as const)
-          : difficultyPool.length === 0
-            ? ("no-difficulty" as const)
-            : pool.length === 0
-              ? ("no-formats" as const)
-              : null,
+      emptyReason: null,
     };
   }, [settings, resumeSnapshot]);
 
-  const { questions, requested, shown, available, emptyReason } = quizBuild;
+  const {
+    questions,
+    requested,
+    shown,
+    exactMatchCount,
+    relaxedPoolSize,
+    usedRelaxation,
+    emptyReason,
+  } = quizBuild;
 
   const [removedQuestionIds, setRemovedQuestionIds] = useState<Set<string>>(
     () => new Set()
@@ -1843,7 +2042,9 @@ function QuizView({
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold">Practice Quiz</h3>
             <p className="text-sm text-muted-foreground">
-              Showing {shown} of {available} matching · requested {requested} ·{" "}
+              {shown} of {requested} question{requested === 1 ? "" : "s"} in this
+              run · {exactMatchCount} exact filter match
+              {exactMatchCount === 1 ? "" : "es"} in bank ·{" "}
               {difficultyLabel[settings.difficulty] ?? settings.difficulty} ·{" "}
               {formatSelectionSummary(settings.questionFormats ?? ["mixed"])}
             </p>
@@ -1884,9 +2085,18 @@ function QuizView({
         {fewerThanRequested && (
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-snug text-muted-foreground">
             Demo bank: only{" "}
-            <span className="font-medium text-foreground">{available}</span>{" "}
-            question{available === 1 ? "" : "s"} match your topic, difficulty,
-            and format filters, so you get {shown} instead of {requested}.
+            <span className="font-medium text-foreground">{relaxedPoolSize}</span>{" "}
+            question{relaxedPoolSize === 1 ? "" : "s"} exist for your selected
+            topics (after widening filters), so this run has {shown} of{" "}
+            {requested} requested.
+          </p>
+        )}
+
+        {usedRelaxation && shown === requested && shown > 0 && (
+          <p className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-snug text-muted-foreground">
+            <span className="font-medium text-foreground">Full quiz.</span> Some
+            items use a broader question type or difficulty so this run reaches
+            your requested length.
           </p>
         )}
 

@@ -716,6 +716,150 @@ export const sampleQuizQuestions: QuizQuestion[] = [
     explanation:
       "Distribution shift breaks the i.i.d. assumption; models may fail on deployment data even with good test scores.",
   },
+  {
+    id: "q19",
+    type: "single-choice",
+    topicId: "t2",
+    difficulty: "easy",
+    question:
+      "Which unsupervised task groups similar points without using labels?",
+    options: [
+      "Classification",
+      "Clustering",
+      "Supervised regression",
+      "Active learning",
+    ],
+    correctAnswer: "Clustering",
+    explanation:
+      "Clustering discovers groups in unlabeled data; labels are not required.",
+  },
+  {
+    id: "q20",
+    type: "multiple-choice",
+    topicId: "t2",
+    difficulty: "medium",
+    question:
+      "Which of the following are common goals in unsupervised learning? (Select all that apply)",
+    options: [
+      "Clustering",
+      "Dimensionality reduction",
+      "Anomaly detection",
+      "Minimizing cross-entropy with labels",
+    ],
+    correctAnswer: ["Clustering", "Dimensionality reduction", "Anomaly detection"],
+    explanation:
+      "Unsupervised learning focuses on structure without labels; cross-entropy with labels is supervised.",
+  },
+  {
+    id: "q21",
+    type: "fill-blank",
+    topicId: "t2",
+    difficulty: "medium",
+    question:
+      "______ maps high-dimensional data to a lower-dimensional space while preserving structure (e.g., neighborhoods).",
+    correctAnswer: "t-SNE",
+    explanation:
+      "t-SNE is a popular technique for visualizing clusters in two or three dimensions.",
+  },
+  {
+    id: "q22",
+    type: "short-answer",
+    topicId: "t2",
+    difficulty: "easy",
+    question:
+      "In one phrase: what does K-Means try to minimize when forming clusters?",
+    correctAnswer:
+      "Within-cluster variance (or distance from points to their cluster centers).",
+    explanation:
+      "K-Means iteratively assigns points to nearest centroids and updates centroids to reduce within-cluster spread.",
+  },
+  {
+    id: "q23",
+    type: "single-choice",
+    topicId: "t2",
+    difficulty: "hard",
+    question:
+      "Which statement best describes the difference between PCA and clustering?",
+    options: [
+      "PCA finds clusters; clustering finds principal directions",
+      "PCA finds low-dimensional linear structure; clustering partitions points into groups",
+      "They are identical algorithms",
+      "PCA always requires labels",
+    ],
+    correctAnswer:
+      "PCA finds low-dimensional linear structure; clustering partitions points into groups",
+    explanation:
+      "PCA is linear dimensionality reduction; clustering assigns points to groups without labels.",
+  },
+  {
+    id: "q24",
+    type: "drag-fill",
+    topicId: "t2",
+    difficulty: "medium",
+    question:
+      "______ is an unsupervised method that partitions data into K groups by minimizing within-cluster variance.",
+    options: ["K-means", "Logistic regression", "Random forest", "Gradient boosting"],
+    correctAnswer: "K-means",
+    explanation:
+      "K-means alternates between assigning points to nearest centroids and updating centroids.",
+  },
+  {
+    id: "q25",
+    type: "single-choice",
+    topicId: "t4",
+    difficulty: "easy",
+    question:
+      "What does a leaf node in a decision tree typically represent?",
+    options: [
+      "A feature test",
+      "A final prediction",
+      "The root split only",
+      "Training loss",
+    ],
+    correctAnswer: "A final prediction",
+    explanation:
+      "Leaves are terminal nodes that output a class label or average target value.",
+  },
+  {
+    id: "q26",
+    type: "fill-blank",
+    topicId: "t5",
+    difficulty: "easy",
+    question:
+      "The proportion of positive predictions that are truly positive is called ______.",
+    correctAnswer: "precision",
+    explanation:
+      "Precision = TP / (TP + FP); it measures the quality of positive predictions.",
+  },
+  {
+    id: "q27",
+    type: "single-choice",
+    topicId: "t6",
+    difficulty: "medium",
+    question:
+      "Why might you one-hot encode a categorical variable with no natural ordering?",
+    options: [
+      "To increase dimensionality without reason",
+      "To avoid implying a false numeric order between categories",
+      "Because labels are always required",
+      "To remove all variance",
+    ],
+    correctAnswer: "To avoid implying a false numeric order between categories",
+    explanation:
+      "Ordinal encoding can mislead models that treat numbers as magnitude; one-hot uses separate binary features.",
+  },
+  {
+    id: "q28",
+    type: "short-answer",
+    topicId: "t6",
+    difficulty: "easy",
+    question:
+      "Name one reason to normalize numerical features before distance-based models (e.g., k-NN).",
+    correctAnswer:
+      "So features with large scales do not dominate distance; comparable scales improve fairness across dimensions.",
+    explanation:
+      "Distance metrics are sensitive to scale; normalization puts features on comparable ranges.",
+  },
 ];
 
 export const sampleNotes: Note[] = [
