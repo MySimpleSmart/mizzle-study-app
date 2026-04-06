@@ -17,10 +17,10 @@ import type {
 } from "@/lib/data";
 import { sampleFlashcards, sampleQuizQuestions } from "@/lib/data";
 import {
-  appendSavedQuiz,
   getSavedQuizzes,
   removeSavedQuiz,
   savedQuizProgress,
+  upsertSavedQuiz,
   type SavedQuizSnapshot,
 } from "@/lib/saved-quizzes";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   CircleDot,
+  Pencil,
+  Sparkles,
   Layers,
   ListChecks,
   PenLine,
@@ -238,11 +240,15 @@ function studyTopicsInOrder(topics: Topic[], studyTopicIds: string[]): Topic[] {
   return studyTopicIds.map((id) => map[id]).filter((t): t is Topic => Boolean(t));
 }
 
-function countQuizQuestionsForStudy(studyTopicIds: string[]): number {
-  if (studyTopicIds.length === 0) return 0;
+function countQuizQuestionsForTopics(topicIds: string[]): number {
+  if (topicIds.length === 0) return 0;
   return sampleQuizQuestions.filter(
-    (q) => q.topicId && studyTopicIds.includes(q.topicId)
+    (q) => q.topicId && topicIds.includes(q.topicId)
   ).length;
+}
+
+function countQuizQuestionsForStudy(studyTopicIds: string[]): number {
+  return countQuizQuestionsForTopics(studyTopicIds);
 }
 
 function countFlashcardsForStudy(studyTopicIds: string[]): number {
@@ -737,6 +743,19 @@ function SavedQuizCardsList({
   onContinue: (entry: SavedQuizSnapshot) => void;
 }) {
   const [items, setItems] = useState<SavedQuizSnapshot[]>([]);
+  const [pendingRemove, setPendingRemove] =
+    useState<SavedQuizSnapshot | null>(null);
+
+  const removeConfirmDescription = useMemo(() => {
+    if (!pendingRemove) return "";
+    const t = topicNamesFromIds(
+      pendingRemove.settings.selectedTopics,
+      allTopics
+    );
+    return t
+      ? `This will permanently delete the saved session for ${t}. You cannot undo this action.`
+      : "This will permanently delete this saved quiz. You cannot undo this action.";
+  }, [pendingRemove, allTopics]);
 
   useEffect(() => {
     setItems(getSavedQuizzes());
@@ -745,6 +764,12 @@ function SavedQuizCardsList({
   const handleRemove = (id: string) => {
     removeSavedQuiz(id);
     setItems(getSavedQuizzes());
+  };
+
+  const confirmRemoveSavedQuiz = () => {
+    if (!pendingRemove) return;
+    handleRemove(pendingRemove.id);
+    setPendingRemove(null);
   };
 
   if (items.length === 0) {
@@ -760,7 +785,38 @@ function SavedQuizCardsList({
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <>
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove saved quiz?</DialogTitle>
+            <DialogDescription>{removeConfirmDescription}</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingRemove(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmRemoveSavedQuiz}
+            >
+              Remove
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((entry) => {
         const { answered, total } = savedQuizProgress(entry);
         const names = topicNamesFromIds(
@@ -804,7 +860,7 @@ function SavedQuizCardsList({
                   type="button"
                   className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
                   aria-label="Remove saved quiz"
-                  onClick={() => handleRemove(entry.id)}
+                  onClick={() => setPendingRemove(entry)}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -821,6 +877,7 @@ function SavedQuizCardsList({
         );
       })}
     </div>
+    </>
   );
 }
 
@@ -935,8 +992,27 @@ function QuizSettingsPanel({
   const [questionFormats, setQuestionFormats] = useState<QuestionType[]>([
     "mixed",
   ]);
+  const [scopeMode, setScopeMode] = useState<"all" | "custom">("all");
+  const [customTopicIds, setCustomTopicIds] = useState<string[]>([]);
 
-  const scopeNames = studyTopics.map((t) => t.name).join(", ");
+  const studyKey = studyTopicIds.join("|");
+  useEffect(() => {
+    setCustomTopicIds((prev) => {
+      const next = prev.filter((id) => studyTopicIds.includes(id));
+      if (next.length > 0) return next;
+      return [...studyTopicIds];
+    });
+  }, [studyKey, studyTopicIds]);
+
+  const effectiveTopicIds =
+    scopeMode === "all" ? studyTopicIds : customTopicIds;
+  const questionsAvailableInScope = countQuizQuestionsForTopics(
+    effectiveTopicIds
+  );
+  const scopeSummaryNames = studyTopics
+    .filter((t) => effectiveTopicIds.includes(t.id))
+    .map((t) => t.name)
+    .join(", ");
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
@@ -968,8 +1044,8 @@ function QuizSettingsPanel({
                   Start quiz
                 </h3>
                 <p className="mt-0.5 text-sm leading-snug text-muted-foreground">
-                  Questions are drawn only from your current study topics. Set
-                  length, difficulty, and format—then start when you are ready.
+                  Pick which topics in your study scope to include, then set
+                  length, difficulty, and question formats.
                 </p>
               </div>
             </div>
@@ -1030,10 +1106,141 @@ function QuizSettingsPanel({
               />
             </div>
 
+            <fieldset className="mt-5 space-y-3">
+              <legend className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Study scope
+              </legend>
+              <RadioGroup
+                value={scopeMode}
+                onValueChange={(v) => {
+                  if (v !== "all" && v !== "custom") return;
+                  setScopeMode(v);
+                  if (v === "custom") {
+                    setCustomTopicIds((prev) => {
+                      const next = prev.filter((id) =>
+                        studyTopicIds.includes(id)
+                      );
+                      return next.length > 0 ? next : [...studyTopicIds];
+                    });
+                  }
+                }}
+                className="space-y-3"
+              >
+                <label
+                  className={cn(
+                    "flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors",
+                    scopeMode === "all"
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-border/70 hover:border-primary/30"
+                  )}
+                >
+                  <RadioGroupItem value="all" className="mt-0.5 shrink-0" />
+                  <span>
+                    <span className="font-medium text-foreground">
+                      All topics in study
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                      Use every topic in your current study list (
+                      {studyTopics.length} topic
+                      {studyTopics.length === 1 ? "" : "s"})
+                    </span>
+                  </span>
+                </label>
+                <label
+                  className={cn(
+                    "flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition-colors",
+                    scopeMode === "custom"
+                      ? "border-primary/50 bg-primary/5"
+                      : "border-border/70 hover:border-primary/30"
+                  )}
+                >
+                  <RadioGroupItem value="custom" className="mt-0.5 shrink-0" />
+                  <span>
+                    <span className="font-medium text-foreground">
+                      Choose topics
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
+                      Select one topic or any combination
+                    </span>
+                  </span>
+                </label>
+              </RadioGroup>
+
+              {scopeMode === "custom" && studyTopics.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-border/70 bg-muted/10 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      Included topics
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                        onClick={() =>
+                          setCustomTopicIds([...studyTopicIds])
+                        }
+                      >
+                        Select all
+                      </button>
+                      {studyTopicIds.length > 1 && (
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                          onClick={() => {
+                            const first = studyTopicIds[0];
+                            if (first) setCustomTopicIds([first]);
+                          }}
+                        >
+                          One only
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {studyTopics.map((t) => {
+                      const checked = customTopicIds.includes(t.id);
+                      return (
+                        <label
+                          key={t.id}
+                          className="flex cursor-pointer items-start gap-2.5 rounded-md border border-transparent px-1 py-0.5 text-sm hover:bg-muted/40"
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              const on = v === true;
+                              if (on) {
+                                setCustomTopicIds((prev) =>
+                                  prev.includes(t.id)
+                                    ? prev
+                                    : [...prev, t.id]
+                                );
+                              } else {
+                                setCustomTopicIds((prev) => {
+                                  if (prev.length <= 1) return prev;
+                                  return prev.filter((id) => id !== t.id);
+                                });
+                              }
+                            }}
+                            className="mt-0.5"
+                          />
+                          <span>{t.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </fieldset>
+
             <div className="mt-4 space-y-2">
               <p className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-[11px] leading-snug text-muted-foreground sm:text-xs">
-                <span className="font-medium text-foreground">Study scope:</span>{" "}
-                {scopeNames || "—"}
+                <span className="font-medium text-foreground">In scope:</span>{" "}
+                {scopeSummaryNames || "—"}
+                {" · "}
+                <span className="tabular-nums">
+                  {questionsAvailableInScope} matching question
+                  {questionsAvailableInScope === 1 ? "" : "s"} in bank
+                </span>
               </p>
               <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2.5 text-center text-xs text-muted-foreground sm:text-left">
                 <span className="font-medium text-foreground">
@@ -1049,13 +1256,16 @@ function QuizSettingsPanel({
             <Button
               className="mt-5 w-full sm:mt-6"
               size="default"
-              disabled={studyTopicIds.length === 0}
+              disabled={
+                studyTopicIds.length === 0 ||
+                (scopeMode === "custom" && customTopicIds.length === 0)
+              }
               onClick={() =>
                 onStart({
                   questionCount: parseInt(questionCount),
                   difficulty: difficulty as QuizSettings["difficulty"],
                   questionFormats,
-                  selectedTopics: studyTopicIds,
+                  selectedTopics: effectiveTopicIds,
                 })
               }
             >
@@ -1079,6 +1289,7 @@ function QuestionCard({
   onFirstReveal,
   onAnswerSnapshot,
   resumeAnswer,
+  onRemoveQuestion,
 }: {
   question: QuizQuestion;
   index: number;
@@ -1091,6 +1302,7 @@ function QuestionCard({
     selectedAnswer: string | string[];
     revealed: boolean;
   } | null;
+  onRemoveQuestion?: () => void;
 }) {
   const [selectedAnswer, setSelectedAnswer] = useState<string | string[]>(
     () => resumeAnswer?.selectedAnswer ?? ""
@@ -1099,12 +1311,42 @@ function QuestionCard({
     () => resumeAnswer?.revealed ?? false
   );
 
+  const firstRevealSentRef = useRef(!!resumeAnswer?.revealed);
+
   useEffect(() => {
     onAnswerSnapshot?.(question.id, {
       selectedAnswer,
       revealed: showResult,
     });
   }, [question.id, selectedAnswer, showResult, onAnswerSnapshot]);
+
+  useEffect(() => {
+    if (!showResult || firstRevealSentRef.current) return;
+    firstRevealSentRef.current = true;
+    onFirstReveal?.();
+  }, [showResult, onFirstReveal]);
+
+  useEffect(() => {
+    if (question.type !== "multiple-choice" || showResult) return;
+    const correct = Array.isArray(question.correctAnswer)
+      ? question.correctAnswer
+      : [question.correctAnswer];
+    const sel = Array.isArray(selectedAnswer) ? selectedAnswer : [];
+    if (correct.length > 0 && sel.length === correct.length) {
+      setShowResult(true);
+    }
+  }, [
+    question.type,
+    question.correctAnswer,
+    selectedAnswer,
+    showResult,
+  ]);
+
+  useEffect(() => {
+    if (question.type !== "drag-fill" || showResult) return;
+    const v = typeof selectedAnswer === "string" ? selectedAnswer.trim() : "";
+    if (v) setShowResult(true);
+  }, [question.type, selectedAnswer, showResult]);
 
   const isCorrect =
     question.type === "multiple-choice"
@@ -1153,7 +1395,10 @@ function QuestionCard({
       {question.type === "single-choice" && question.options && (
         <RadioGroup
           value={typeof selectedAnswer === "string" ? selectedAnswer : ""}
-          onValueChange={(val) => setSelectedAnswer(val)}
+          onValueChange={(val) => {
+            setSelectedAnswer(val);
+            setShowResult(true);
+          }}
           className="space-y-2"
         >
           {question.options.map((option) => (
@@ -1224,6 +1469,10 @@ function QuestionCard({
           placeholder="Type your answer..."
           value={typeof selectedAnswer === "string" ? selectedAnswer : ""}
           onChange={(e) => setSelectedAnswer(e.target.value)}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && !showResult) setShowResult(true);
+          }}
           disabled={showResult}
           className={cn(
             showResult &&
@@ -1251,25 +1500,19 @@ function QuestionCard({
           placeholder="Write your answer..."
           value={typeof selectedAnswer === "string" ? selectedAnswer : ""}
           onChange={(e) => setSelectedAnswer(e.target.value)}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && !showResult) setShowResult(true);
+          }}
           disabled={showResult}
           rows={3}
           className="w-full rounded-lg border bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
         />
       )}
 
-      <div className="mt-4 flex items-center gap-2">
-        {!showResult ? (
-          <Button
-            size="sm"
-            onClick={() => {
-              setShowResult(true);
-              onFirstReveal?.();
-            }}
-          >
-            Check Answer
-          </Button>
-        ) : (
-          <div className="w-full rounded-lg bg-muted/50 p-3">
+      {showResult && (
+        <div className="mt-4 space-y-3">
+          <div className="rounded-lg bg-muted/50 p-3">
             <p className="text-xs font-medium text-muted-foreground">
               Explanation
             </p>
@@ -1277,8 +1520,43 @@ function QuestionCard({
               {question.explanation}
             </p>
           </div>
-        )}
-      </div>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              title="Ask AI"
+              aria-label="Ask AI"
+              onClick={() => {}}
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-foreground"
+              title="Edit question"
+              aria-label="Edit question"
+              onClick={() => {}}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-destructive"
+              title="Remove question"
+              aria-label="Remove question"
+              onClick={() => onRemoveQuestion?.()}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1302,7 +1580,7 @@ function QuizView({
     totalQuestions: number;
   }) => void;
   onQuestionRevealed?: (questionId: string) => void;
-  onQuizSaved?: () => void;
+  onQuizSaved?: (snapshot: SavedQuizSnapshot) => void;
   resumeSnapshot?: SavedQuizSnapshot | null;
 }) {
   const quizBuild = useMemo(() => {
@@ -1362,6 +1640,21 @@ function QuizView({
 
   const { questions, requested, shown, available, emptyReason } = quizBuild;
 
+  const [removedQuestionIds, setRemovedQuestionIds] = useState<Set<string>>(
+    () => new Set()
+  );
+
+  const builtQuestionIdsKey = questions.map((q) => q.id).join("|");
+
+  useEffect(() => {
+    setRemovedQuestionIds(new Set());
+  }, [builtQuestionIdsKey]);
+
+  const visibleQuestions = useMemo(
+    () => questions.filter((q) => !removedQuestionIds.has(q.id)),
+    [questions, removedQuestionIds]
+  );
+
   const answersSnapshotRef = useRef<
     Record<
       string,
@@ -1372,7 +1665,7 @@ function QuizView({
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [leaveQuizConfirmOpen, setLeaveQuizConfirmOpen] = useState(false);
 
-  const questionIdsKey = questions.map((q) => q.id).join("|");
+  const questionIdsKey = visibleQuestions.map((q) => q.id).join("|");
 
   useEffect(() => {
     if (!hasUnsavedChanges) return;
@@ -1436,17 +1729,17 @@ function QuizView({
   useEffect(() => {
     onProgressScopeChange?.({
       questionIdsKey,
-      totalQuestions: questions.length,
+      totalQuestions: visibleQuestions.length,
     });
-  }, [questionIdsKey, questions.length, onProgressScopeChange]);
+  }, [questionIdsKey, visibleQuestions.length, onProgressScopeChange]);
 
   const handleSaveQuiz = useCallback(() => {
-    if (questions.length === 0) return;
+    if (visibleQuestions.length === 0) return;
     const answers: Record<
       string,
       { selectedAnswer: string | string[]; revealed: boolean }
     > = {};
-    for (const q of questions) {
+    for (const q of visibleQuestions) {
       const snap = answersSnapshotRef.current[q.id];
       if (snap) {
         answers[q.id] = {
@@ -1455,17 +1748,18 @@ function QuizView({
         };
       }
     }
-    appendSavedQuiz({
+    const snapshot = upsertSavedQuiz({
+      ...(resumeSnapshot?.id ? { id: resumeSnapshot.id } : {}),
       savedAt: new Date().toISOString(),
       settings,
-      questionIds: questions.map((q) => q.id),
+      questionIds: visibleQuestions.map((q) => q.id),
       answers,
     });
     setHasUnsavedChanges(false);
     setSaveStatus("saved");
-    onQuizSaved?.();
+    onQuizSaved?.(snapshot);
     window.setTimeout(() => setSaveStatus("idle"), 2200);
-  }, [questions, settings, onQuizSaved]);
+  }, [visibleQuestions, settings, onQuizSaved, resumeSnapshot?.id]);
 
   const requestLeaveQuiz = useCallback(() => {
     if (hasUnsavedChanges) {
@@ -1569,7 +1863,7 @@ function QuizView({
               variant="default"
               size="sm"
               className="gap-1.5"
-              disabled={questions.length === 0}
+              disabled={visibleQuestions.length === 0}
               onClick={handleSaveQuiz}
             >
               <Save className="h-3.5 w-3.5" />
@@ -1596,7 +1890,13 @@ function QuizView({
           </p>
         )}
 
-        {questions.map((q, i) => (
+        {questions.length > 0 && visibleQuestions.length === 0 && (
+          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
+            All questions were removed from this run.
+          </p>
+        )}
+
+        {visibleQuestions.map((q, i) => (
           <QuestionCard
             key={`${resumeSnapshot?.id ?? "run"}-${q.id}`}
             question={q}
@@ -1604,6 +1904,9 @@ function QuizView({
             onFirstReveal={() => onQuestionRevealed?.(q.id)}
             onAnswerSnapshot={handleAnswerSnapshot}
             resumeAnswer={resumeSnapshot?.answers[q.id] ?? null}
+            onRemoveQuestion={() =>
+              setRemovedQuestionIds((prev) => new Set([...prev, q.id]))
+            }
           />
         ))}
       </div>
@@ -1765,7 +2068,10 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
             }}
             onProgressScopeChange={handleQuizProgressScopeChange}
             onQuestionRevealed={handleQuizQuestionRevealed}
-            onQuizSaved={bumpSavedList}
+            onQuizSaved={(snapshot) => {
+              setResumeSnapshot(snapshot);
+              bumpSavedList();
+            }}
           />
         ) : !showQuizStartForm ? (
           <QuizBrowseView

@@ -30,19 +30,40 @@ export function getSavedQuizzes(): SavedQuizSnapshot[] {
   return readAll();
 }
 
-export function appendSavedQuiz(
-  data: Omit<SavedQuizSnapshot, "id">
+function newQuizId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `quiz-${Date.now()}`;
+}
+
+/**
+ * Writes a quiz snapshot. If `id` is set, replaces any existing entry with that
+ * id (same quiz re-saved). Otherwise creates a new id and prepends a new entry.
+ */
+export function upsertSavedQuiz(
+  data: Omit<SavedQuizSnapshot, "id"> & { id?: string }
 ): SavedQuizSnapshot {
-  const id =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `quiz-${Date.now()}`;
-  const entry: SavedQuizSnapshot = { ...data, id };
-  const next = [entry, ...readAll()].slice(0, MAX_SAVED);
+  const all = readAll();
+  const id = data.id ?? newQuizId();
+  const entry: SavedQuizSnapshot = {
+    id,
+    savedAt: data.savedAt,
+    settings: data.settings,
+    questionIds: data.questionIds,
+    answers: data.answers,
+  };
+  const rest = data.id ? all.filter((q) => q.id !== data.id) : all;
+  const next = [entry, ...rest].slice(0, MAX_SAVED);
   if (typeof window !== "undefined") {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }
   return entry;
+}
+
+export function appendSavedQuiz(
+  data: Omit<SavedQuizSnapshot, "id">
+): SavedQuizSnapshot {
+  return upsertSavedQuiz(data);
 }
 
 export function removeSavedQuiz(id: string): void {
