@@ -106,3 +106,10 @@
     cursor: pointer;
   }
 }
+
+/* KaTeX: avoid nested scrollbars on block math (no overflow traps on formula boxes) */
+.study-markdown .katex-display,
+.study-markdown .katex-display > .katex,
+.study-markdown .katex-display .katex-html {
+  overflow: visible !important;
+}

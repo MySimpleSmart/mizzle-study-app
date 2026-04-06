@@ -117,7 +117,7 @@ export function SectionsPanel({
                   }
                 }}
               >
-                <div className="flex w-full min-w-0 items-start justify-between gap-3">
+                <div className="flex w-full min-w-0 items-start justify-between gap-2">
                   <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {section.topicIds.length} topic
                     {section.topicIds.length !== 1 ? "s" : ""}

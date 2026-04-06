@@ -180,7 +180,7 @@ export function StudyMarkdown({ content, className }: StudyMarkdownProps) {
   return (
     <div
       className={cn(
-        "study-markdown prose-sm max-w-none [&_.katex]:text-foreground [&_.katex-display]:my-4 [&_.katex-display]:overflow-x-auto",
+        "study-markdown prose-sm max-w-none [&_.katex]:text-foreground [&_.katex-display]:my-4",
         className
       )}
     >

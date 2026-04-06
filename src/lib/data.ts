@@ -251,6 +251,24 @@ Supervised learning is one of the most widely used paradigms in machine learning
 | SVM | Both | High-dimensional spaces |
 | Neural Networks | Both | Complex patterns, images, text |
 
+### Example (Python)
+
+A minimal **scikit-learn** workflow for a classification task:
+
+\`\`\`python
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+clf = LogisticRegression(max_iter=1000)
+clf.fit(X_train, y_train)
+y_pred = clf.predict(X_test)
+print("Accuracy:", accuracy_score(y_test, y_pred))
+\`\`\`
+
 ### Real-World Applications
 
 - **Email Filtering** — Classifying emails as spam or legitimate
@@ -274,6 +292,16 @@ Unsupervised learning works with **unlabeled data** — the algorithm must disco
 - **Hierarchical Clustering** — Builds a tree of clusters from bottom-up or top-down
 - **Principal Component Analysis (PCA)** — Projects data onto axes of maximum variance
 - **Autoencoders** — Neural networks that learn compressed representations
+
+### Example: K-Means in Python
+
+\`\`\`python
+from sklearn.cluster import KMeans
+
+kmeans = KMeans(n_clusters=3, random_state=42, n_init="auto")
+labels = kmeans.fit_predict(X)
+centroids = kmeans.cluster_centers_
+\`\`\`
 
 ### Applications
 
@@ -308,6 +336,21 @@ Common activation functions include ReLU, Sigmoid, and Tanh.
 2. **Loss Calculation** — Compare prediction against the actual label
 3. **Backpropagation** — Calculate gradients of the loss with respect to each weight
 4. **Weight Update** — Adjust weights using gradient descent to minimize loss
+
+### Code sketch (NumPy-style)
+
+Forward pass for one layer (conceptual):
+
+\`\`\`python
+import numpy as np
+
+def relu(x):
+    return np.maximum(0, x)
+
+# x: batch of inputs, W: weights, b: biases
+z = x @ W + b
+a = relu(z)  # activation output for this layer
+\`\`\`
 
 ### Types of Neural Networks
 
