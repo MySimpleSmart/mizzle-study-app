@@ -19,6 +19,10 @@ export const metadata: Metadata = {
   title: "Mizzle — AI Learning Workspace",
   description:
     "Study smarter with AI. Upload sources, extract topics, take quizzes, and organize your study materials in one workspace.",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export default function RootLayout({

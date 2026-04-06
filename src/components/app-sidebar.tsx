@@ -21,11 +21,15 @@ interface AppSidebarProps {
   selectedTopics: string[];
   onToggleTopic: (topicId: string) => void;
   sections: Section[];
+  activeSectionCount: number;
   sources: Source[];
   onSelectTopic: (topicId: string) => void;
   onSelectTopicsForSection: (topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
+  onArchiveSection: (sectionId: string) => void;
+  onRestoreSection: (sectionId: string) => void;
+  onRemoveSection: (sectionId: string) => void;
 }
 
 function SidebarSectionHeader({
@@ -68,11 +72,15 @@ export function AppSidebar({
   selectedTopics,
   onToggleTopic,
   sections,
+  activeSectionCount,
   sources,
   onSelectTopic,
   onSelectTopicsForSection,
   onGenerateSectionClick,
   generateDisabled,
+  onArchiveSection,
+  onRestoreSection,
+  onRemoveSection,
 }: AppSidebarProps) {
   const [openSections, setOpenSections] = useState<Record<SidebarSection, boolean>>({
     brief: true,
@@ -96,7 +104,7 @@ export function AppSidebar({
               onToggle={() => toggle("brief")}
             />
             {openSections.brief && (
-              <div className="px-4 pb-4">
+              <div className="px-4 pt-5 pb-4">
                 <BriefPanel
                   topics={topics}
                   selectedTopics={selectedTopics}
@@ -112,16 +120,19 @@ export function AppSidebar({
               icon={<BookOpen className="h-4 w-4 text-primary" />}
               isOpen={openSections.sections}
               onToggle={() => toggle("sections")}
-              count={sections.length}
+              count={activeSectionCount}
             />
             {openSections.sections && (
-              <div className="px-4 pb-4">
+              <div className="px-4 pt-5 pb-4">
                 <SectionsPanel
                   sections={sections}
                   topics={topics}
                   onSelectTopicsForSection={onSelectTopicsForSection}
                   onGenerateSectionClick={onGenerateSectionClick}
                   generateDisabled={generateDisabled}
+                  onArchiveSection={onArchiveSection}
+                  onRestoreSection={onRestoreSection}
+                  onRemoveSection={onRemoveSection}
                 />
               </div>
             )}
@@ -136,7 +147,7 @@ export function AppSidebar({
               count={sources.length}
             />
             {openSections.source && (
-              <div className="px-4 pb-4">
+              <div className="px-4 pt-5 pb-4">
                 <SourcePanel sources={sources} />
               </div>
             )}

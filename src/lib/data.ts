@@ -39,6 +39,8 @@ export interface Section {
   title: string;
   generatedAt: string;
   wordCount: number;
+  /** When true, hidden from the main list (saved in archive) */
+  archived?: boolean;
 }
 
 /** Stable key for comparing whether two sections cover the same topic set */

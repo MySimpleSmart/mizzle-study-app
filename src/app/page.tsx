@@ -13,14 +13,22 @@ import {
   type Section,
 } from "@/lib/data";
 
+function firstActiveTopicIds(sections: Section[]): string[] {
+  const active = sections.filter((s) => !s.archived);
+  return active.length > 0 ? active[0].topicIds : [];
+}
+
 export default function Home() {
-  /** Topics checked in Brief — only for building the *next* section */
   const [briefSelection, setBriefSelection] = useState<string[]>([]);
-  /** Topics driving Study / Quiz — last generated or section you clicked */
   const [studyTopicIds, setStudyTopicIds] = useState<string[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
 
-  const workspaceReady = sections.length > 0;
+  const activeSections = useMemo(
+    () => sections.filter((s) => !s.archived),
+    [sections]
+  );
+
+  const workspaceReady = activeSections.length > 0;
 
   const toggleTopic = (topicId: string) => {
     setBriefSelection((prev) =>
@@ -46,17 +54,17 @@ export default function Home() {
     const ids = briefSelection.filter((id) => sampleStudyContent[id]);
     if (ids.length === 0) return false;
     const key = sectionTopicSetKey(ids);
-    const duplicate = sections.some(
+    const duplicate = activeSections.some(
       (s) => sectionTopicSetKey(s.topicIds) === key
     );
     return !duplicate;
-  }, [briefSelection, sections]);
+  }, [briefSelection, activeSections]);
 
   const handleGenerateSectionClick = () => {
     const topicIds = briefSelection.filter((id) => sampleStudyContent[id]);
     if (topicIds.length === 0) return;
     if (
-      sections.some(
+      activeSections.some(
         (s) => sectionTopicSetKey(s.topicIds) === sectionTopicSetKey(topicIds)
       )
     ) {
@@ -77,11 +85,55 @@ export default function Home() {
         title: buildCombinedSectionTitle(topicIds, sampleTopics),
         generatedAt: new Date().toISOString().split("T")[0],
         wordCount,
+        archived: false,
       },
     ]);
 
     setStudyTopicIds(topicIds);
     setBriefSelection([]);
+  };
+
+  const syncStudyAfterRemoveOrArchive = (
+    removed: Section,
+    nextSections: Section[]
+  ) => {
+    setStudyTopicIds((study) => {
+      if (sectionTopicSetKey(removed.topicIds) !== sectionTopicSetKey(study)) {
+        return study;
+      }
+      return firstActiveTopicIds(nextSections);
+    });
+    setBriefSelection((brief) =>
+      sectionTopicSetKey(brief) === sectionTopicSetKey(removed.topicIds)
+        ? []
+        : brief
+    );
+  };
+
+  const removeSection = (sectionId: string) => {
+    const removed = sections.find((s) => s.id === sectionId);
+    const nextSections = sections.filter((s) => s.id !== sectionId);
+    setSections(nextSections);
+    if (!removed) return;
+    syncStudyAfterRemoveOrArchive(removed, nextSections);
+  };
+
+  const archiveSection = (sectionId: string) => {
+    const removed = sections.find((s) => s.id === sectionId);
+    if (!removed) return;
+    const nextSections = sections.map((s) =>
+      s.id === sectionId ? { ...s, archived: true } : s
+    );
+    setSections(nextSections);
+    syncStudyAfterRemoveOrArchive(removed, nextSections);
+  };
+
+  const restoreSection = (sectionId: string) => {
+    setSections((prev) =>
+      prev.map((s) =>
+        s.id === sectionId ? { ...s, archived: false } : s
+      )
+    );
   };
 
   return (
@@ -111,11 +163,15 @@ export default function Home() {
               selectedTopics={briefSelection}
               onToggleTopic={toggleTopic}
               sections={sections}
+              activeSectionCount={activeSections.length}
               sources={sampleSources}
               onSelectTopic={selectTopic}
               onSelectTopicsForSection={selectTopicsForSection}
               onGenerateSectionClick={handleGenerateSectionClick}
               generateDisabled={!canGenerateFromSelection}
+              onArchiveSection={archiveSection}
+              onRestoreSection={restoreSection}
+              onRemoveSection={removeSection}
             />
 
             <main className="flex-1 overflow-hidden bg-background">
