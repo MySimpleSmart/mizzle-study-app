@@ -13,8 +13,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { EnhanceWithVisualsDialog } from "@/components/enhance-with-visuals-dialog";
+import {
+  EnhanceWithVisualsDialog,
+  type EnhanceVisualMode,
+} from "@/components/enhance-with-visuals-dialog";
 import { StudyMarkdown } from "@/components/study-markdown";
+import { TopicEnhanceDemos } from "@/components/topic-enhance-demos";
 import { BookOpen, Layers, Plus, Sparkles } from "lucide-react";
 
 interface StudyTabProps {
@@ -47,6 +51,10 @@ export function StudyTab({
 }: StudyTabProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [enhanceTopicId, setEnhanceTopicId] = useState<string | null>(null);
+  /** Per-topic, which enhance demos are shown under the study body */
+  const [topicDemos, setTopicDemos] = useState<
+    Record<string, EnhanceVisualMode[]>
+  >({});
   const addableTopics = useAddableTopics(topics, studyTopicIds, sections);
   const selectedTopicData = useMemo(() => {
     const map = Object.fromEntries(topics.map((t) => [t.id, t]));
@@ -150,6 +158,15 @@ export function StudyTab({
         contextTitle={
           selectedTopicData.find((t) => t.id === enhanceTopicId)?.name ?? ""
         }
+        onSelectOption={(mode) => {
+          const id = enhanceTopicId;
+          if (!id) return;
+          setTopicDemos((prev) => {
+            const cur = prev[id] ?? [];
+            if (cur.includes(mode)) return prev;
+            return { ...prev, [id]: [...cur, mode] };
+          });
+        }}
       />
 
       <ScrollArea className="min-h-0 flex-1">
@@ -181,6 +198,21 @@ export function StudyTab({
                   </button>
                 </div>
                 <StudyMarkdown content={content} />
+                <TopicEnhanceDemos
+                  topicName={topic.name}
+                  modes={topicDemos[topic.id] ?? []}
+                  onRemove={(mode) => {
+                    setTopicDemos((prev) => {
+                      const cur = prev[topic.id] ?? [];
+                      const next = cur.filter((m) => m !== mode);
+                      if (next.length === 0) {
+                        const { [topic.id]: _, ...rest } = prev;
+                        return rest;
+                      }
+                      return { ...prev, [topic.id]: next };
+                    });
+                  }}
+                />
               </article>
             );
           })}

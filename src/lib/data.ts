@@ -112,6 +112,10 @@ export interface QuizQuestion {
   options?: string[];
   correctAnswer: string | string[];
   explanation: string;
+  /** Topic this question belongs to (for filtering by current study) */
+  topicId?: string;
+  /** For demo filtering; defaults to medium in the quiz UI if omitted */
+  difficulty?: Difficulty;
 }
 
 export interface Note {
@@ -124,7 +128,11 @@ export interface Note {
 export interface QuizSettings {
   questionCount: number;
   difficulty: Difficulty;
-  questionType: QuestionType;
+  /**
+   * Question formats to include. `mixed` alone means all types.
+   * Multiple concrete types can be selected together (exclusive with `mixed`).
+   */
+  questionFormats: QuestionType[];
   selectedTopics: string[];
 }
 
@@ -479,6 +487,8 @@ export const sampleQuizQuestions: QuizQuestion[] = [
   {
     id: "q1",
     type: "single-choice",
+    topicId: "t1",
+    difficulty: "easy",
     question:
       "Which type of learning uses labeled data to train a model?",
     options: [
@@ -494,6 +504,8 @@ export const sampleQuizQuestions: QuizQuestion[] = [
   {
     id: "q2",
     type: "multiple-choice",
+    topicId: "t5",
+    difficulty: "medium",
     question:
       "Which of the following are classification metrics? (Select all that apply)",
     options: ["Precision", "MAE", "F1 Score", "R² Score", "Recall"],
@@ -504,6 +516,8 @@ export const sampleQuizQuestions: QuizQuestion[] = [
   {
     id: "q3",
     type: "fill-blank",
+    topicId: "t3",
+    difficulty: "hard",
     question:
       'In a neural network, the process of calculating gradients of the loss with respect to each weight is called ______.',
     correctAnswer: "backpropagation",
@@ -513,6 +527,8 @@ export const sampleQuizQuestions: QuizQuestion[] = [
   {
     id: "q4",
     type: "single-choice",
+    topicId: "t4",
+    difficulty: "medium",
     question:
       "What splitting criterion measures the probability of incorrect classification in decision trees?",
     options: [
@@ -528,12 +544,177 @@ export const sampleQuizQuestions: QuizQuestion[] = [
   {
     id: "q5",
     type: "short-answer",
+    topicId: "t5",
+    difficulty: "medium",
     question:
       "Explain the difference between overfitting and underfitting in 1–2 sentences.",
     correctAnswer:
       "Overfitting occurs when a model memorizes training data but fails to generalize to new data (high variance). Underfitting occurs when a model is too simple to capture the underlying patterns (high bias).",
     explanation:
       "The bias-variance tradeoff is central to model evaluation — finding the sweet spot between underfitting and overfitting.",
+  },
+  {
+    id: "q6",
+    type: "single-choice",
+    topicId: "t1",
+    difficulty: "medium",
+    question:
+      "Which algorithm is most associated with labeled classification tasks in this course?",
+    options: ["K-means clustering", "Logistic regression", "PCA", "t-SNE"],
+    correctAnswer: "Logistic regression",
+    explanation:
+      "Logistic regression is a classic supervised algorithm for classification (and binary outcomes) when you have labels.",
+  },
+  {
+    id: "q7",
+    type: "short-answer",
+    topicId: "t1",
+    difficulty: "easy",
+    question:
+      "In one sentence, what is the role of a loss function in supervised learning?",
+    correctAnswer:
+      "It measures how wrong predictions are so the model can update weights during training.",
+    explanation:
+      "The loss quantifies error between predictions and labels; minimizing it is the usual training objective.",
+  },
+  {
+    id: "q8",
+    type: "single-choice",
+    topicId: "t3",
+    difficulty: "medium",
+    question:
+      "What does an activation function introduce into each neuron?",
+    options: [
+      "Linear mixing only",
+      "Non-linearity",
+      "Always dropout",
+      "Batch labels",
+    ],
+    correctAnswer: "Non-linearity",
+    explanation:
+      "Non-linear activations let neural networks approximate complex functions beyond linear combinations.",
+  },
+  {
+    id: "q11",
+    type: "fill-blank",
+    topicId: "t1",
+    difficulty: "medium",
+    question:
+      "The process of measuring how well a model performs on data it was not trained on is called ______ evaluation.",
+    correctAnswer: "generalization",
+    explanation:
+      "Generalization refers to performance on new, held-out data — the core goal of most supervised learning.",
+  },
+  {
+    id: "q12",
+    type: "short-answer",
+    topicId: "t3",
+    difficulty: "medium",
+    question:
+      "In one sentence: why are non-linear activation functions important in hidden layers?",
+    correctAnswer:
+      "They let the network learn non-linear decision boundaries and approximate complex functions; without them, stacked layers would still behave like a single linear layer.",
+    explanation:
+      "Composition of linear maps is still linear; non-linearities are what enable depth to add expressive power.",
+  },
+  {
+    id: "q13",
+    type: "fill-blank",
+    topicId: "t3",
+    difficulty: "easy",
+    question:
+      "Layers between the input and output in a feedforward network are called ______ layers.",
+    correctAnswer: "hidden",
+    explanation:
+      "Hidden layers transform representations; deep networks stack many hidden layers.",
+  },
+  {
+    id: "q14",
+    type: "short-answer",
+    topicId: "t1",
+    difficulty: "easy",
+    question:
+      "In one phrase: what is a label in supervised learning?",
+    correctAnswer:
+      "The known target output (class or value) paired with each training input.",
+    explanation:
+      "Supervised learning uses input–label pairs so the model can learn to predict labels from inputs.",
+  },
+  {
+    id: "q15",
+    type: "single-choice",
+    topicId: "t3",
+    difficulty: "easy",
+    question:
+      "Which layer typically produces the final predictions in a classifier network?",
+    options: ["Input layer", "Output layer", "Embedding layer only", "Batch norm only"],
+    correctAnswer: "Output layer",
+    explanation:
+      "The output layer maps the last hidden representation to logits or probabilities for each class.",
+  },
+  {
+    id: "q9",
+    type: "drag-fill",
+    topicId: "t1",
+    difficulty: "medium",
+    question:
+      "The first layer of a feedforward network that receives raw features is the ______ layer.",
+    options: ["input", "hidden", "output", "embedding"],
+    correctAnswer: "input",
+    explanation:
+      "The input layer receives raw features; hidden layers transform them; the output layer produces predictions.",
+  },
+  {
+    id: "q10",
+    type: "drag-fill",
+    topicId: "t3",
+    difficulty: "hard",
+    question:
+      "______ is the optimization step that adjusts weights using gradients.",
+    options: ["Gradient descent", "Forward pass", "Regularization", "Dropout"],
+    correctAnswer: "Gradient descent",
+    explanation:
+      "Gradient descent (and variants) updates weights using gradients of the loss with respect to parameters.",
+  },
+  {
+    id: "q16",
+    type: "single-choice",
+    topicId: "t1",
+    difficulty: "hard",
+    question:
+      "Which risk is most directly associated with using too flexible a model on limited data?",
+    options: [
+      "Underfitting",
+      "Overfitting",
+      "Data normalization",
+      "Label smoothing only",
+    ],
+    correctAnswer: "Overfitting",
+    explanation:
+      "High-capacity models can fit noise; with limited data, validation error rises while training error stays low.",
+  },
+  {
+    id: "q17",
+    type: "short-answer",
+    topicId: "t3",
+    difficulty: "hard",
+    question:
+      "What problem can very deep networks suffer from regarding gradients, and what is one common mitigation?",
+    correctAnswer:
+      "Vanishing or exploding gradients; mitigations include careful initialization, skip connections (residual nets), and normalized activations.",
+    explanation:
+      "Depth makes backpropagation multiply many Jacobian terms; skip connections and normalization stabilize training.",
+  },
+  {
+    id: "q18",
+    type: "fill-blank",
+    topicId: "t1",
+    difficulty: "hard",
+    question:
+      "When train and test distributions differ, the problem is often called ______ shift.",
+    correctAnswer: "distribution",
+    explanation:
+      "Distribution shift breaks the i.i.d. assumption; models may fail on deployment data even with good test scores.",
   },
 ];
 

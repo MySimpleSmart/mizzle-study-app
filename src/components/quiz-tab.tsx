@@ -1,8 +1,28 @@
 "use client";
 
-import { useState } from "react";
-import type { Flashcard, QuizQuestion, QuizSettings, Topic } from "@/lib/data";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
+import type {
+  Flashcard,
+  QuestionType,
+  QuizQuestion,
+  QuizSettings,
+  Topic,
+} from "@/lib/data";
 import { sampleFlashcards, sampleQuizQuestions } from "@/lib/data";
+import {
+  appendSavedQuiz,
+  getSavedQuizzes,
+  removeSavedQuiz,
+  savedQuizProgress,
+  type SavedQuizSnapshot,
+} from "@/lib/saved-quizzes";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -15,23 +35,220 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { LucideIcon } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Bookmark,
   BrainCircuit,
   CheckCircle2,
   ChevronLeft,
-  ChevronRight,
+  CircleDot,
   Layers,
+  ListChecks,
+  PenLine,
+  Plus,
   RotateCcw,
+  Save,
   Settings2,
+  TextCursorInput,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const DRAG_FILL_GAP = "______";
+
+function shuffleArray<T>(items: T[]): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function DragFillInteraction({
+  question,
+  selectedAnswer,
+  onAnswerChange,
+  showResult,
+  isCorrect,
+}: {
+  question: QuizQuestion;
+  selectedAnswer: string;
+  onAnswerChange: (value: string) => void;
+  showResult: boolean;
+  isCorrect: boolean;
+}) {
+  const options = question.options ?? [];
+  const bankOrder = useMemo(
+    () => shuffleArray(options),
+    [question.id, question.options?.join("|")]
+  );
+
+  const placed = selectedAnswer;
+  const bankOptions = bankOrder.filter((o) => o !== placed);
+
+  const parts = question.question.split(DRAG_FILL_GAP);
+  const hasInlineGap = parts.length >= 2;
+
+  const handleDragStart = (
+    e: DragEvent,
+    text: string,
+    from: "bank" | "gap"
+  ) => {
+    e.dataTransfer.setData("text/plain", text);
+    e.dataTransfer.setData("application/x-mizzle-dnd-from", from);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDropOnGap = (e: DragEvent) => {
+    e.preventDefault();
+    if (showResult) return;
+    const text = e.dataTransfer.getData("text/plain");
+    if (!text) return;
+    onAnswerChange(text);
+  };
+
+  const handleDropOnBank = (e: DragEvent) => {
+    e.preventDefault();
+    if (showResult) return;
+    const from = e.dataTransfer.getData("application/x-mizzle-dnd-from");
+    if (from === "gap") onAnswerChange("");
+  };
+
+  const gapBox = (
+    <span
+      role="group"
+      aria-label="Drop zone"
+      onDragOver={handleDragOver}
+      onDrop={handleDropOnGap}
+      className={cn(
+        "mx-0.5 inline-flex min-h-9 min-w-[6.5rem] max-w-[min(100%,20rem)] items-center justify-center rounded-md border-2 border-dashed px-1.5 align-middle transition-colors",
+        showResult
+          ? isCorrect
+            ? "border-green-400 bg-green-50"
+            : "border-destructive/55 bg-red-50"
+          : "border-primary/40 bg-muted/25 hover:border-primary/55",
+        placed && "border-solid"
+      )}
+    >
+      {placed ? (
+        <span
+          draggable={!showResult}
+          onDragStart={(e) => handleDragStart(e, placed, "gap")}
+          className={cn(
+            "max-w-full truncate rounded px-2 py-1 text-sm font-medium",
+            !showResult && "cursor-grab active:cursor-grabbing",
+            showResult && isCorrect && "text-green-800",
+            showResult && !isCorrect && "text-destructive"
+          )}
+        >
+          {placed}
+        </span>
+      ) : (
+        <span className="px-1 text-[11px] text-muted-foreground">Drop</span>
+      )}
+    </span>
+  );
+
+  if (options.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        This drag-fill question has no word bank.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm font-medium leading-relaxed">
+        {hasInlineGap ? (
+          <>
+            {parts[0]}
+            {gapBox}
+            {parts.slice(1).join(DRAG_FILL_GAP)}
+          </>
+        ) : (
+          <>
+            <p>{question.question}</p>
+            <div className="mt-3 flex justify-start">{gapBox}</div>
+          </>
+        )}
+      </div>
+
+      <div
+        onDragOver={handleDragOver}
+        onDrop={handleDropOnBank}
+        className="rounded-xl border border-border/70 bg-muted/15 p-3"
+      >
+        <p className="mb-2.5 text-[11px] text-muted-foreground">Word bank</p>
+        <div className="flex flex-wrap gap-2">
+          {bankOptions.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              draggable={!showResult}
+              onDragStart={(e) => handleDragStart(e, opt, "bank")}
+              disabled={showResult}
+              onClick={() => {
+                if (!showResult) onAnswerChange(opt);
+              }}
+              className={cn(
+                "touch-manipulation rounded-full border border-border bg-background px-3 py-1.5 text-left text-sm shadow-sm transition hover:border-primary/35 hover:bg-background",
+                !showResult &&
+                  "cursor-grab active:cursor-grabbing active:shadow-none"
+              )}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type QuizMode = "quiz" | "flashcard";
 
 interface QuizTabProps {
   topics: Topic[];
   studyTopicIds: string[];
+}
+
+const formSelectTriggerClass =
+  "h-9 w-full min-w-0 rounded-md border-border bg-background shadow-none";
+
+/** Topics in workspace study order — quiz/flashcard only use these. */
+function studyTopicsInOrder(topics: Topic[], studyTopicIds: string[]): Topic[] {
+  const map = Object.fromEntries(topics.map((t) => [t.id, t]));
+  return studyTopicIds.map((id) => map[id]).filter((t): t is Topic => Boolean(t));
+}
+
+function countQuizQuestionsForStudy(studyTopicIds: string[]): number {
+  if (studyTopicIds.length === 0) return 0;
+  return sampleQuizQuestions.filter(
+    (q) => q.topicId && studyTopicIds.includes(q.topicId)
+  ).length;
+}
+
+function countFlashcardsForStudy(studyTopicIds: string[]): number {
+  if (studyTopicIds.length === 0) return 0;
+  return sampleFlashcards.filter((c) => studyTopicIds.includes(c.topicId))
+    .length;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,30 +262,38 @@ function ModeSelector({
   mode: QuizMode;
   onModeChange: (mode: QuizMode) => void;
 }) {
+  const tab = (active: boolean) =>
+    cn(
+      "inline-flex items-center gap-1 rounded-[5px] px-2 py-0.5 text-xs font-medium transition-colors",
+      active
+        ? "bg-white text-foreground shadow-sm"
+        : "text-muted-foreground hover:text-foreground"
+    );
+
   return (
-    <div className="flex gap-1 rounded-lg border bg-muted/40 p-1">
+    <div
+      className="inline-flex gap-0.5 rounded-md border bg-muted/40 p-0.5"
+      role="tablist"
+      aria-label="Quiz mode"
+    >
       <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "quiz"}
         onClick={() => onModeChange("quiz")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
-          mode === "quiz"
-            ? "bg-white text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        )}
+        className={tab(mode === "quiz")}
       >
-        <BrainCircuit className="h-4 w-4" />
+        <BrainCircuit className="h-3.5 w-3.5 shrink-0 opacity-90" />
         Quiz
       </button>
       <button
+        type="button"
+        role="tab"
+        aria-selected={mode === "flashcard"}
         onClick={() => onModeChange("flashcard")}
-        className={cn(
-          "flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
-          mode === "flashcard"
-            ? "bg-white text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        )}
+        className={tab(mode === "flashcard")}
       >
-        <Layers className="h-4 w-4" />
+        <Layers className="h-3.5 w-3.5 shrink-0 opacity-90" />
         Flashcard
       </button>
     </div>
@@ -80,16 +305,21 @@ function ModeSelector({
 // ---------------------------------------------------------------------------
 
 function FlashcardSettingsPanel({
-  topics,
-  studyTopicIds,
+  studyTopics,
   onGenerate,
 }: {
-  topics: Topic[];
-  studyTopicIds: string[];
+  /** Only topics in the current workspace study (same order as Study tab) */
+  studyTopics: Topic[];
   onGenerate: (cardCount: number, topicIds: string[]) => void;
 }) {
   const [cardCount, setCardCount] = useState("8");
-  const [chosenTopics, setChosenTopics] = useState<string[]>(studyTopicIds);
+  const [chosenTopics, setChosenTopics] = useState<string[]>(() =>
+    studyTopics.map((t) => t.id)
+  );
+
+  useEffect(() => {
+    setChosenTopics(studyTopics.map((t) => t.id));
+  }, [studyTopics]);
 
   const toggleTopic = (id: string) => {
     setChosenTopics((prev) =>
@@ -97,76 +327,133 @@ function FlashcardSettingsPanel({
     );
   };
 
+  const topicMap = Object.fromEntries(studyTopics.map((t) => [t.id, t.name]));
+  const chosenNames = chosenTopics
+    .map((id) => topicMap[id])
+    .filter(Boolean) as string[];
+  const topicSummary =
+    chosenNames.length === 0
+      ? "No topics selected"
+      : chosenNames.length <= 3
+        ? chosenNames.join(", ")
+        : `${chosenNames.slice(0, 2).join(", ")} +${chosenNames.length - 2} more`;
+
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="w-full max-w-md space-y-6 rounded-xl border bg-white p-6">
-        <div className="text-center">
-          <Layers className="mx-auto mb-2 h-10 w-10 text-primary/70" />
-          <h3 className="text-lg font-semibold">Generate Flashcards</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Choose topics and number of cards to study
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Number of Cards</label>
-            <Select value={cardCount} onValueChange={(v) => v && setCardCount(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="5">5 cards</SelectItem>
-                <SelectItem value="8">8 cards</SelectItem>
-                <SelectItem value="10">10 cards</SelectItem>
-                <SelectItem value="15">15 cards</SelectItem>
-                <SelectItem value="20">20 cards</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Topics</label>
-            <div className="flex flex-wrap gap-1.5">
-              {topics.map((topic) => (
-                <button
-                  key={topic.id}
-                  onClick={() => toggleTopic(topic.id)}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm transition-colors",
-                    chosenTopics.includes(topic.id)
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/40"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 rounded-full",
-                      chosenTopics.includes(topic.id)
-                        ? "bg-primary"
-                        : "bg-muted-foreground/40"
-                    )}
-                  />
-                  {topic.name}
-                </button>
-              ))}
+    <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-4 sm:p-6">
+      <div className="w-full max-w-2xl">
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm">
+          <div className="border-b border-border/60 bg-muted/25 px-5 py-4 sm:px-6">
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10"
+                aria-hidden
+              >
+                <Layers className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 pt-0.5">
+                <h3 className="text-base font-semibold tracking-tight text-foreground">
+                  Generate Flashcards
+                </h3>
+                <p className="mt-0.5 text-sm leading-snug text-muted-foreground">
+                  Cards are drawn only from topics in your current study. Choose
+                  how many to generate and which topics to include.
+                </p>
+              </div>
             </div>
-            {chosenTopics.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                Select at least one topic
-              </p>
-            )}
+          </div>
+
+          <div className="p-5 sm:p-6">
+            <div className="w-full space-y-1.5">
+              <label
+                htmlFor="flashcard-count"
+                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Number of cards
+              </label>
+              <Select
+                value={cardCount}
+                onValueChange={(v) => v && setCardCount(v)}
+              >
+                <SelectTrigger id="flashcard-count" className={formSelectTriggerClass}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5 cards</SelectItem>
+                  <SelectItem value="8">8 cards</SelectItem>
+                  <SelectItem value="10">10 cards</SelectItem>
+                  <SelectItem value="15">15 cards</SelectItem>
+                  <SelectItem value="20">20 cards</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <span
+                id="flashcard-topics-label"
+                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Topics
+              </span>
+              <div
+                role="group"
+                aria-labelledby="flashcard-topics-label"
+                className="rounded-lg border border-border/60 bg-muted/15 p-3 sm:p-4"
+              >
+                <div className="flex flex-wrap gap-1.5">
+                  {studyTopics.map((topic) => (
+                    <button
+                      key={topic.id}
+                      type="button"
+                      onClick={() => toggleTopic(topic.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors",
+                        chosenTopics.includes(topic.id)
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 shrink-0 rounded-full",
+                          chosenTopics.includes(topic.id)
+                            ? "bg-primary"
+                            : "bg-muted-foreground/40"
+                        )}
+                      />
+                      {topic.name}
+                    </button>
+                  ))}
+                </div>
+                {chosenTopics.length === 0 && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Select at least one topic to continue.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <p className="mt-4 rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2.5 text-center text-xs text-muted-foreground sm:text-left">
+              <span className="font-medium text-foreground">{cardCount} cards</span>
+              {" · "}
+              {chosenTopics.length > 0 && (
+                <span className="text-foreground/90">
+                  {chosenTopics.length} topic
+                  {chosenTopics.length === 1 ? "" : "s"}
+                  {" — "}
+                </span>
+              )}
+              {topicSummary}
+            </p>
+
+            <Button
+              className="mt-5 w-full sm:mt-6"
+              disabled={chosenTopics.length === 0}
+              onClick={() => onGenerate(parseInt(cardCount), chosenTopics)}
+            >
+              Generate Flashcards
+            </Button>
           </div>
         </div>
-
-        <Button
-          className="w-full"
-          disabled={chosenTopics.length === 0}
-          onClick={() => onGenerate(parseInt(cardCount), chosenTopics)}
-        >
-          <ChevronRight className="mr-1.5 h-4 w-4" />
-          Generate Flashcards
-        </Button>
       </div>
     </div>
   );
@@ -185,6 +472,24 @@ function FlashcardViewer({
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
+
+  if (cards.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-sm font-medium text-foreground">
+          No flashcards for this selection
+        </p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          None of your selected topics have sample cards yet. Try other topics
+          or generate again.
+        </p>
+        <Button variant="outline" size="sm" onClick={onBack}>
+          Back to settings
+        </Button>
+      </div>
+    );
+  }
+
   const card = cards[currentIndex];
 
   const goNext = () => {
@@ -267,9 +572,7 @@ function FlashcardViewer({
           size="sm"
           onClick={goPrev}
           disabled={currentIndex === 0}
-          className="gap-1"
         >
-          <ChevronLeft className="h-4 w-4" />
           Previous
         </Button>
 
@@ -287,10 +590,8 @@ function FlashcardViewer({
           size="sm"
           onClick={goNext}
           disabled={currentIndex === cards.length - 1}
-          className="gap-1"
         >
           Next
-          <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
@@ -302,11 +603,9 @@ function FlashcardViewer({
 // ---------------------------------------------------------------------------
 
 function FlashcardView({
-  topics,
-  studyTopicIds,
+  studyTopics,
 }: {
-  topics: Topic[];
-  studyTopicIds: string[];
+  studyTopics: Topic[];
 }) {
   const [generated, setGenerated] = useState(false);
   const [activeCards, setActiveCards] = useState<Flashcard[]>([]);
@@ -315,7 +614,7 @@ function FlashcardView({
     const filtered = sampleFlashcards.filter((c) =>
       topicIds.includes(c.topicId)
     );
-    const cards = filtered.length > 0 ? filtered.slice(0, cardCount) : sampleFlashcards.slice(0, cardCount);
+    const cards = filtered.slice(0, cardCount);
     setActiveCards(cards);
     setGenerated(true);
   };
@@ -323,8 +622,7 @@ function FlashcardView({
   if (!generated) {
     return (
       <FlashcardSettingsPanel
-        topics={topics}
-        studyTopicIds={studyTopicIds}
+        studyTopics={studyTopics}
         onGenerate={handleGenerate}
       />
     );
@@ -342,88 +640,430 @@ function FlashcardView({
 // Quiz Settings
 // ---------------------------------------------------------------------------
 
+const difficultyLabel: Record<string, string> = {
+  easy: "Easy",
+  medium: "Medium",
+  hard: "Hard",
+};
+
+const questionTypeLabel: Record<string, string> = {
+  mixed: "Mix all",
+  "single-choice": "Single choice",
+  "multiple-choice": "Multiple choice",
+  "fill-blank": "Fill in the blank",
+  "drag-fill": "Drag & fill",
+  "short-answer": "Short answer",
+};
+
+const QUESTION_TYPE_TILES: {
+  value: QuestionType;
+  label: string;
+  Icon: LucideIcon;
+}[] = [
+  { value: "single-choice", label: "Single choice", Icon: CircleDot },
+  { value: "multiple-choice", label: "Multiple choice", Icon: ListChecks },
+  { value: "fill-blank", label: "Fill in the blank", Icon: TextCursorInput },
+  { value: "drag-fill", label: "Drag & fill", Icon: ArrowLeftRight },
+  { value: "short-answer", label: "Short answer", Icon: PenLine },
+  { value: "mixed", label: "Mix all", Icon: Layers },
+];
+
+/** Toggle one format; `mixed` clears other picks; concrete types are multi-select. */
+function toggleQuestionFormat(
+  current: QuestionType[],
+  next: QuestionType
+): QuestionType[] {
+  if (next === "mixed") {
+    return ["mixed"];
+  }
+  const withoutMixed = current.filter((t) => t !== "mixed");
+  if (withoutMixed.includes(next)) {
+    const removed = withoutMixed.filter((t) => t !== next);
+    return removed.length === 0 ? ["mixed"] : removed;
+  }
+  return [...withoutMixed, next];
+}
+
+function formatSelectionSummary(formats: QuestionType[]): string {
+  if (formats.includes("mixed") || formats.length === 0) {
+    return "Mix all";
+  }
+  return formats.map((f) => questionTypeLabel[f] ?? f).join(", ");
+}
+
+function questionMatchesFormats(
+  questionType: QuizQuestion["type"],
+  formats: QuestionType[] | undefined
+): boolean {
+  const f = formats ?? ["mixed"];
+  if (f.includes("mixed") || f.length === 0) return true;
+  const concrete = f.filter(
+    (t): t is Exclude<QuestionType, "mixed"> => t !== "mixed"
+  );
+  return concrete.includes(questionType);
+}
+
+function questionMatchesDifficulty(
+  q: QuizQuestion,
+  difficulty: QuizSettings["difficulty"]
+): boolean {
+  return (q.difficulty ?? "medium") === difficulty;
+}
+
+function formatSavedQuizDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function topicNamesFromIds(ids: string[], topicList: Topic[]): string {
+  const map = Object.fromEntries(topicList.map((t) => [t.id, t.name]));
+  return ids.map((id) => map[id] ?? id).join(", ");
+}
+
+function SavedQuizCardsList({
+  allTopics,
+  refreshKey,
+  onContinue,
+}: {
+  allTopics: Topic[];
+  refreshKey: number;
+  onContinue: (entry: SavedQuizSnapshot) => void;
+}) {
+  const [items, setItems] = useState<SavedQuizSnapshot[]>([]);
+
+  useEffect(() => {
+    setItems(getSavedQuizzes());
+  }, [refreshKey]);
+
+  const handleRemove = (id: string) => {
+    removeSavedQuiz(id);
+    setItems(getSavedQuizzes());
+  };
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
+        <p className="text-sm text-muted-foreground">
+          No saved quizzes yet. Start a new quiz, then use{" "}
+          <span className="font-medium text-foreground">Save quiz</span> during
+          practice to store it here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {items.map((entry) => {
+        const { answered, total } = savedQuizProgress(entry);
+        const names = topicNamesFromIds(
+          entry.settings.selectedTopics,
+          allTopics
+        );
+        const progressPercent =
+          total > 0 ? Math.round((answered / total) * 100) : 0;
+
+        return (
+          <div
+            key={entry.id}
+            className="flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm"
+          >
+            <p className="text-sm font-medium leading-snug text-foreground">
+              {names}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {entry.settings.questionCount} requested ·{" "}
+              {difficultyLabel[entry.settings.difficulty]} ·{" "}
+              {formatSelectionSummary(entry.settings.questionFormats)}
+            </p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {entry.questionIds.length} questions in session
+            </p>
+            <div
+              className="mt-3"
+              title={`${answered} of ${total} checked`}
+            >
+              <Progress
+                value={progressPercent}
+                className="w-full gap-0 [&_[data-slot=progress-track]]:h-2"
+              />
+            </div>
+            <div className="mt-4 flex flex-nowrap items-center gap-2 border-t border-border/50 pt-3">
+              <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
+                {formatSavedQuizDate(entry.savedAt)}
+              </p>
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                  aria-label="Remove saved quiz"
+                  onClick={() => handleRemove(entry.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => onContinue(entry)}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuizBrowseView({
+  allTopics,
+  savedListVersion,
+  onNewQuiz,
+  onContinue,
+}: {
+  allTopics: Topic[];
+  savedListVersion: number;
+  onNewQuiz: () => void;
+  onContinue: (entry: SavedQuizSnapshot) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <div className="w-full flex-1 px-6 py-6">
+        <div className="mb-6 flex w-full items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Bookmark
+              className="h-5 w-5 shrink-0 text-primary"
+              aria-hidden
+            />
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">
+              Saved quizzes
+            </h3>
+          </div>
+          <Button
+            type="button"
+            className="shrink-0 gap-1.5"
+            onClick={onNewQuiz}
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            New quiz
+          </Button>
+        </div>
+        <SavedQuizCardsList
+          allTopics={allTopics}
+          refreshKey={savedListVersion}
+          onContinue={onContinue}
+        />
+      </div>
+    </div>
+  );
+}
+
+function QuestionTypeGrid({
+  value,
+  onChange,
+}: {
+  value: QuestionType[];
+  onChange: (next: QuestionType[]) => void;
+}) {
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-2 block text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Question types
+      </legend>
+      <p className="mb-2 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+        Choose one or more formats. &ldquo;Mix all&rdquo; includes every type;
+        otherwise combine specific formats.
+      </p>
+      <div
+        role="group"
+        aria-label="Question types (multiple selection)"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-3"
+      >
+        {QUESTION_TYPE_TILES.map(({ value: v, label, Icon }) => {
+          const mixedMode = value.includes("mixed");
+          const selected = mixedMode ? v === "mixed" : value.includes(v);
+          return (
+            <button
+              key={v}
+              type="button"
+              role="checkbox"
+              aria-checked={selected}
+              onClick={() => onChange(toggleQuestionFormat(value, v))}
+              className={cn(
+                "flex min-h-[4.5rem] flex-col items-center justify-center gap-1.5 rounded-md border px-2 py-2.5 text-center text-xs font-medium transition-colors sm:min-h-[4.75rem] sm:text-[13px]",
+                selected
+                  ? "border-primary bg-primary/10 text-primary shadow-sm"
+                  : "border-border bg-card text-muted-foreground hover:border-primary/30 hover:bg-muted/50 hover:text-foreground"
+              )}
+            >
+              <Icon
+                className="h-5 w-5 shrink-0 opacity-90"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="leading-snug">{label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
 function QuizSettingsPanel({
   onStart,
+  studyTopics,
+  studyTopicIds,
+  onBackToSavedList,
 }: {
   onStart: (settings: QuizSettings) => void;
+  studyTopics: Topic[];
+  studyTopicIds: string[];
+  onBackToSavedList: () => void;
 }) {
   const [questionCount, setQuestionCount] = useState("5");
   const [difficulty, setDifficulty] = useState("medium");
-  const [questionType, setQuestionType] = useState("mixed");
+  const [questionFormats, setQuestionFormats] = useState<QuestionType[]>([
+    "mixed",
+  ]);
+
+  const scopeNames = studyTopics.map((t) => t.name).join(", ");
 
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="w-full max-w-md space-y-6 rounded-xl border bg-white p-6">
-        <div className="text-center">
-          <BrainCircuit className="mx-auto mb-2 h-10 w-10 text-primary/70" />
-          <h3 className="text-lg font-semibold">Generate Quiz</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Configure your quiz settings and test your knowledge
-          </p>
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <div className="flex shrink-0 flex-col items-center px-4 pt-6 sm:px-6">
+        <div className="w-full max-w-2xl">
+        <div className="mb-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="-ml-2 gap-1 text-muted-foreground hover:text-foreground"
+            onClick={onBackToSavedList}
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            Saved quizzes
+          </Button>
         </div>
-
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Number of Questions</label>
-            <Select value={questionCount} onValueChange={(v) => v && setQuestionCount(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="5">5 questions</SelectItem>
-                <SelectItem value="10">10 questions</SelectItem>
-                <SelectItem value="15">15 questions</SelectItem>
-                <SelectItem value="20">20 questions</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm">
+          <div className="border-b border-border/60 bg-muted/25 px-5 py-4 sm:px-6">
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10"
+                aria-hidden
+              >
+                <BrainCircuit className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 pt-0.5">
+                <h3 className="text-base font-semibold tracking-tight text-foreground">
+                  Start quiz
+                </h3>
+                <p className="mt-0.5 text-sm leading-snug text-muted-foreground">
+                  Questions are drawn only from your current study topics. Set
+                  length, difficulty, and format—then start when you are ready.
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Difficulty</label>
-            <Select value={difficulty} onValueChange={(v) => v && setDifficulty(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="easy">Easy</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="hard">Hard</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <div className="p-5 sm:p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="quiz-question-count"
+                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  Number of questions
+                </label>
+                <Select
+                  value={questionCount}
+                  onValueChange={(v) => v && setQuestionCount(v)}
+                >
+                  <SelectTrigger id="quiz-question-count" className={formSelectTriggerClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5 questions</SelectItem>
+                    <SelectItem value="10">10 questions</SelectItem>
+                    <SelectItem value="15">15 questions</SelectItem>
+                    <SelectItem value="20">20 questions</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Question Type</label>
-            <Select value={questionType} onValueChange={(v) => v && setQuestionType(v)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mixed">Mixed</SelectItem>
-                <SelectItem value="single-choice">Single Choice</SelectItem>
-                <SelectItem value="multiple-choice">Multiple Choice</SelectItem>
-                <SelectItem value="fill-blank">Fill in the Blank</SelectItem>
-                <SelectItem value="drag-fill">Drag and Fill</SelectItem>
-                <SelectItem value="short-answer">Short Answer</SelectItem>
-              </SelectContent>
-            </Select>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="quiz-difficulty"
+                  className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                >
+                  Difficulty
+                </label>
+                <Select
+                  value={difficulty}
+                  onValueChange={(v) => v && setDifficulty(v)}
+                >
+                  <SelectTrigger id="quiz-difficulty" className={formSelectTriggerClass}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="easy">Easy</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="hard">Hard</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="mt-5">
+              <QuestionTypeGrid
+                value={questionFormats}
+                onChange={setQuestionFormats}
+              />
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <p className="rounded-lg border border-border/60 bg-muted/15 px-3 py-2 text-[11px] leading-snug text-muted-foreground sm:text-xs">
+                <span className="font-medium text-foreground">Study scope:</span>{" "}
+                {scopeNames || "—"}
+              </p>
+              <p className="rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-2.5 text-center text-xs text-muted-foreground sm:text-left">
+                <span className="font-medium text-foreground">
+                  {questionCount} questions
+                </span>
+                {" · "}
+                {difficultyLabel[difficulty] ?? difficulty}
+                {" · "}
+                {formatSelectionSummary(questionFormats)}
+              </p>
+            </div>
+
+            <Button
+              className="mt-5 w-full sm:mt-6"
+              size="default"
+              disabled={studyTopicIds.length === 0}
+              onClick={() =>
+                onStart({
+                  questionCount: parseInt(questionCount),
+                  difficulty: difficulty as QuizSettings["difficulty"],
+                  questionFormats,
+                  selectedTopics: studyTopicIds,
+                })
+              }
+            >
+              Start Quiz
+            </Button>
           </div>
         </div>
-
-        <Button
-          className="w-full"
-          onClick={() =>
-            onStart({
-              questionCount: parseInt(questionCount),
-              difficulty: difficulty as QuizSettings["difficulty"],
-              questionType: questionType as QuizSettings["questionType"],
-              selectedTopics: [],
-            })
-          }
-        >
-          <ChevronRight className="mr-1.5 h-4 w-4" />
-          Start Quiz
-        </Button>
+        </div>
       </div>
     </div>
   );
@@ -436,12 +1076,35 @@ function QuizSettingsPanel({
 function QuestionCard({
   question,
   index,
+  onFirstReveal,
+  onAnswerSnapshot,
+  resumeAnswer,
 }: {
   question: QuizQuestion;
   index: number;
+  onFirstReveal?: () => void;
+  onAnswerSnapshot?: (
+    questionId: string,
+    payload: { selectedAnswer: string | string[]; revealed: boolean }
+  ) => void;
+  resumeAnswer?: {
+    selectedAnswer: string | string[];
+    revealed: boolean;
+  } | null;
 }) {
-  const [selectedAnswer, setSelectedAnswer] = useState<string | string[]>("");
-  const [showResult, setShowResult] = useState(false);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | string[]>(
+    () => resumeAnswer?.selectedAnswer ?? ""
+  );
+  const [showResult, setShowResult] = useState(
+    () => resumeAnswer?.revealed ?? false
+  );
+
+  useEffect(() => {
+    onAnswerSnapshot?.(question.id, {
+      selectedAnswer,
+      revealed: showResult,
+    });
+  }, [question.id, selectedAnswer, showResult, onAnswerSnapshot]);
 
   const isCorrect =
     question.type === "multiple-choice"
@@ -449,12 +1112,17 @@ function QuestionCard({
         Array.isArray(question.correctAnswer) &&
         selectedAnswer.length === question.correctAnswer.length &&
         selectedAnswer.every((a) => question.correctAnswer.includes(a))
-      : selectedAnswer === question.correctAnswer;
+      : question.type === "drag-fill"
+        ? typeof selectedAnswer === "string" &&
+          typeof question.correctAnswer === "string" &&
+          selectedAnswer === question.correctAnswer
+        : selectedAnswer === question.correctAnswer;
 
   const typeLabels: Record<string, string> = {
     "single-choice": "Single Choice",
     "multiple-choice": "Multiple Choice",
     "fill-blank": "Fill in the Blank",
+    "drag-fill": "Drag & Fill",
     "short-answer": "Short Answer",
   };
 
@@ -478,7 +1146,9 @@ function QuestionCard({
         )}
       </div>
 
-      <p className="mb-4 text-sm font-medium">{question.question}</p>
+      {question.type !== "drag-fill" && (
+        <p className="mb-4 text-sm font-medium">{question.question}</p>
+      )}
 
       {question.type === "single-choice" && question.options && (
         <RadioGroup
@@ -564,6 +1234,18 @@ function QuestionCard({
         />
       )}
 
+      {question.type === "drag-fill" && (
+        <DragFillInteraction
+          question={question}
+          selectedAnswer={
+            typeof selectedAnswer === "string" ? selectedAnswer : ""
+          }
+          onAnswerChange={(v) => setSelectedAnswer(v)}
+          showResult={showResult}
+          isCorrect={isCorrect}
+        />
+      )}
+
       {question.type === "short-answer" && (
         <textarea
           placeholder="Write your answer..."
@@ -577,7 +1259,13 @@ function QuestionCard({
 
       <div className="mt-4 flex items-center gap-2">
         {!showResult ? (
-          <Button size="sm" onClick={() => setShowResult(true)}>
+          <Button
+            size="sm"
+            onClick={() => {
+              setShowResult(true);
+              onFirstReveal?.();
+            }}
+          >
             Check Answer
           </Button>
         ) : (
@@ -600,36 +1288,327 @@ function QuestionCard({
 // ---------------------------------------------------------------------------
 
 function QuizView({
+  settings,
   onBack,
+  onProgressScopeChange,
+  onQuestionRevealed,
+  onQuizSaved,
+  resumeSnapshot,
 }: {
+  settings: QuizSettings;
   onBack: () => void;
+  onProgressScopeChange?: (payload: {
+    questionIdsKey: string;
+    totalQuestions: number;
+  }) => void;
+  onQuestionRevealed?: (questionId: string) => void;
+  onQuizSaved?: () => void;
+  resumeSnapshot?: SavedQuizSnapshot | null;
 }) {
+  const quizBuild = useMemo(() => {
+    if (resumeSnapshot) {
+      const questions = resumeSnapshot.questionIds
+        .map((id) => sampleQuizQuestions.find((q) => q.id === id))
+        .filter((q): q is QuizQuestion => Boolean(q));
+      const n = questions.length;
+      return {
+        questions,
+        requested: n,
+        available: n,
+        shown: n,
+        topicCount: n,
+        difficultyCount: n,
+        emptyReason:
+          n === 0 ? ("resume-invalid" as const) : null,
+      };
+    }
+
+    const topicSet = new Set(settings.selectedTopics);
+    const formats = settings.questionFormats ?? ["mixed"];
+    const difficulty = settings.difficulty;
+
+    const topicPool = sampleQuizQuestions.filter(
+      (q) => q.topicId && topicSet.has(q.topicId)
+    );
+    const difficultyPool = topicPool.filter((q) =>
+      questionMatchesDifficulty(q, difficulty)
+    );
+    const pool = difficultyPool.filter((q) =>
+      questionMatchesFormats(q.type, formats)
+    );
+
+    const requested = settings.questionCount;
+    const available = pool.length;
+    const shown = Math.min(requested, available);
+    const questions = pool.slice(0, shown);
+
+    return {
+      questions,
+      requested,
+      available,
+      shown,
+      topicCount: topicPool.length,
+      difficultyCount: difficultyPool.length,
+      emptyReason:
+        topicPool.length === 0
+          ? ("no-topics" as const)
+          : difficultyPool.length === 0
+            ? ("no-difficulty" as const)
+            : pool.length === 0
+              ? ("no-formats" as const)
+              : null,
+    };
+  }, [settings, resumeSnapshot]);
+
+  const { questions, requested, shown, available, emptyReason } = quizBuild;
+
+  const answersSnapshotRef = useRef<
+    Record<
+      string,
+      { selectedAnswer: string | string[]; revealed: boolean }
+    >
+  >({});
+
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [leaveQuizConfirmOpen, setLeaveQuizConfirmOpen] = useState(false);
+
+  const questionIdsKey = questions.map((q) => q.id).join("|");
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    setHasUnsavedChanges(false);
+  }, [questionIdsKey]);
+
+  useEffect(() => {
+    if (resumeSnapshot) {
+      answersSnapshotRef.current = { ...resumeSnapshot.answers };
+    } else {
+      answersSnapshotRef.current = {};
+    }
+  }, [resumeSnapshot?.id, questionIdsKey, resumeSnapshot]);
+
+  useEffect(() => {
+    if (!resumeSnapshot?.id || !onQuestionRevealed) return;
+    for (const qid of resumeSnapshot.questionIds) {
+      if (resumeSnapshot.answers[qid]?.revealed) {
+        onQuestionRevealed(qid);
+      }
+    }
+  }, [resumeSnapshot, onQuestionRevealed]);
+
+  const handleAnswerSnapshot = useCallback(
+    (
+      questionId: string,
+      payload: { selectedAnswer: string | string[]; revealed: boolean }
+    ) => {
+      answersSnapshotRef.current[questionId] = payload;
+      if (resumeSnapshot) {
+        const orig = resumeSnapshot.answers[questionId];
+        if (
+          orig &&
+          orig.selectedAnswer === payload.selectedAnswer &&
+          orig.revealed === payload.revealed
+        ) {
+          return;
+        }
+      }
+      const hasContent =
+        payload.revealed ||
+        (typeof payload.selectedAnswer === "string" &&
+          payload.selectedAnswer.trim() !== "") ||
+        (Array.isArray(payload.selectedAnswer) &&
+          payload.selectedAnswer.length > 0);
+      if (hasContent) setHasUnsavedChanges(true);
+    },
+    [resumeSnapshot]
+  );
+
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+
+  useEffect(() => {
+    onProgressScopeChange?.({
+      questionIdsKey,
+      totalQuestions: questions.length,
+    });
+  }, [questionIdsKey, questions.length, onProgressScopeChange]);
+
+  const handleSaveQuiz = useCallback(() => {
+    if (questions.length === 0) return;
+    const answers: Record<
+      string,
+      { selectedAnswer: string | string[]; revealed: boolean }
+    > = {};
+    for (const q of questions) {
+      const snap = answersSnapshotRef.current[q.id];
+      if (snap) {
+        answers[q.id] = {
+          selectedAnswer: snap.selectedAnswer,
+          revealed: snap.revealed,
+        };
+      }
+    }
+    appendSavedQuiz({
+      savedAt: new Date().toISOString(),
+      settings,
+      questionIds: questions.map((q) => q.id),
+      answers,
+    });
+    setHasUnsavedChanges(false);
+    setSaveStatus("saved");
+    onQuizSaved?.();
+    window.setTimeout(() => setSaveStatus("idle"), 2200);
+  }, [questions, settings, onQuizSaved]);
+
+  const requestLeaveQuiz = useCallback(() => {
+    if (hasUnsavedChanges) {
+      setLeaveQuizConfirmOpen(true);
+    } else {
+      onBack();
+    }
+  }, [hasUnsavedChanges, onBack]);
+
+  const confirmLeaveQuiz = useCallback(() => {
+    setLeaveQuizConfirmOpen(false);
+    onBack();
+  }, [onBack]);
+
+  if (questions.length === 0 && emptyReason) {
+    const body =
+      emptyReason === "resume-invalid"
+        ? "This saved quiz no longer matches the question bank. Remove it and start a new quiz."
+        : emptyReason === "no-topics"
+          ? "There are no quiz items for your current study topics. Add topics in Study or try again later."
+          : emptyReason === "no-difficulty"
+            ? `No demo questions are tagged "${difficultyLabel[settings.difficulty] ?? settings.difficulty}" for these topics. Try another difficulty in settings.`
+            : "No demo questions match the selected question types for these topics. Turn on Mix all or pick types that exist in the bank (see sample data per topic).";
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-sm font-medium text-foreground">
+          {emptyReason === "resume-invalid"
+            ? "Could not open saved quiz"
+            : emptyReason === "no-topics"
+              ? "No questions for this study yet"
+              : emptyReason === "no-difficulty"
+                ? "No questions at this difficulty"
+                : "No questions for these filters"}
+        </p>
+        <p className="max-w-sm text-xs text-muted-foreground">{body}</p>
+        <Button variant="outline" size="sm" onClick={onBack}>
+          {emptyReason === "resume-invalid"
+            ? "Back to saved quizzes"
+            : "Back to settings"}
+        </Button>
+      </div>
+    );
+  }
+
+  const fewerThanRequested = requested > shown && shown > 0;
+
   return (
-    <ScrollArea className="h-full">
+    <>
+      <Dialog
+        open={leaveQuizConfirmOpen}
+        onOpenChange={setLeaveQuizConfirmOpen}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Leave without saving?</DialogTitle>
+            <DialogDescription>
+              You have unsaved changes on this quiz. If you leave now, your
+              answers and progress on this run will be lost unless you save
+              first.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLeaveQuizConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmLeaveQuiz}>
+              Leave anyway
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ScrollArea className="h-full">
       <div className="space-y-4 p-6">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
             <h3 className="text-base font-semibold">Practice Quiz</h3>
             <p className="text-sm text-muted-foreground">
-              {sampleQuizQuestions.length} questions · Medium difficulty
+              Showing {shown} of {available} matching · requested {requested} ·{" "}
+              {difficultyLabel[settings.difficulty] ?? settings.difficulty} ·{" "}
+              {formatSelectionSummary(settings.questionFormats ?? ["mixed"])}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={onBack}
-          >
-            <Settings2 className="h-3.5 w-3.5" />
-            New Quiz
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={requestLeaveQuiz}
+            >
+              <ChevronLeft className="h-4 w-4" aria-hidden />
+              Back
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              className="gap-1.5"
+              disabled={questions.length === 0}
+              onClick={handleSaveQuiz}
+            >
+              <Save className="h-3.5 w-3.5" />
+              {saveStatus === "saved" ? "Saved" : "Save quiz"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={requestLeaveQuiz}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              New Quiz
+            </Button>
+          </div>
         </div>
 
-        {sampleQuizQuestions.map((q, i) => (
-          <QuestionCard key={q.id} question={q} index={i} />
+        {fewerThanRequested && (
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs leading-snug text-muted-foreground">
+            Demo bank: only{" "}
+            <span className="font-medium text-foreground">{available}</span>{" "}
+            question{available === 1 ? "" : "s"} match your topic, difficulty,
+            and format filters, so you get {shown} instead of {requested}.
+          </p>
+        )}
+
+        {questions.map((q, i) => (
+          <QuestionCard
+            key={`${resumeSnapshot?.id ?? "run"}-${q.id}`}
+            question={q}
+            index={i}
+            onFirstReveal={() => onQuestionRevealed?.(q.id)}
+            onAnswerSnapshot={handleAnswerSnapshot}
+            resumeAnswer={resumeSnapshot?.answers[q.id] ?? null}
+          />
         ))}
       </div>
     </ScrollArea>
+    </>
   );
 }
 
@@ -637,28 +1616,177 @@ function QuizView({
 // Main Export
 // ---------------------------------------------------------------------------
 
+function StudyScopeEmpty() {
+  return (
+    <div className="flex h-full min-h-[200px] flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-sm font-medium text-foreground">No topics in this study</p>
+      <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+        Open a section from the sidebar or add topics in the Study tab. Quiz and
+        flashcards use only what you are studying now.
+      </p>
+    </div>
+  );
+}
+
 export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
   const [mode, setMode] = useState<QuizMode>("quiz");
   const [quizStarted, setQuizStarted] = useState(false);
+  const [quizSession, setQuizSession] = useState<QuizSettings | null>(null);
+  const [savedListVersion, setSavedListVersion] = useState(0);
+  /** When false, show saved-quiz cards + New quiz; when true, show Start quiz form. */
+  const [showQuizStartForm, setShowQuizStartForm] = useState(false);
+  const [resumeSnapshot, setResumeSnapshot] = useState<SavedQuizSnapshot | null>(
+    null
+  );
+  const [quizRunKey, setQuizRunKey] = useState(0);
+  const bumpSavedList = useCallback(() => {
+    setSavedListVersion((v) => v + 1);
+  }, []);
+
+  const handleContinueSavedQuiz = useCallback((entry: SavedQuizSnapshot) => {
+    setResumeSnapshot(entry);
+    setQuizSession(entry.settings);
+    setQuizStarted(true);
+    setShowQuizStartForm(false);
+    setQuizRunKey((k) => k + 1);
+  }, []);
+
+  const quizAnsweredIdsRef = useRef<Set<string>>(new Set());
+  const quizLastQuestionIdsKeyRef = useRef<string | null>(null);
+  const [quizProgressAnswered, setQuizProgressAnswered] = useState(0);
+  const [quizProgressTotal, setQuizProgressTotal] = useState(0);
+
+  const handleQuizProgressScopeChange = useCallback(
+    (payload: { questionIdsKey: string; totalQuestions: number }) => {
+      setQuizProgressTotal(payload.totalQuestions);
+      if (quizLastQuestionIdsKeyRef.current !== payload.questionIdsKey) {
+        quizLastQuestionIdsKeyRef.current = payload.questionIdsKey;
+        quizAnsweredIdsRef.current = new Set();
+        setQuizProgressAnswered(0);
+      }
+    },
+    []
+  );
+
+  const handleQuizQuestionRevealed = useCallback((id: string) => {
+    if (quizAnsweredIdsRef.current.has(id)) return;
+    quizAnsweredIdsRef.current.add(id);
+    setQuizProgressAnswered((c) => c + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!quizSession) {
+      quizLastQuestionIdsKeyRef.current = null;
+      quizAnsweredIdsRef.current = new Set();
+      setQuizProgressAnswered(0);
+      setQuizProgressTotal(0);
+    }
+  }, [quizSession]);
+
+  const studyTopics = useMemo(
+    () => studyTopicsInOrder(topics, studyTopicIds),
+    [topics, studyTopicIds]
+  );
+
+  const quizAvailable = useMemo(
+    () => countQuizQuestionsForStudy(studyTopicIds),
+    [studyTopicIds]
+  );
+  const flashcardAvailable = useMemo(
+    () => countFlashcardsForStudy(studyTopicIds),
+    [studyTopicIds]
+  );
+
+  const hasStudyScope = studyTopics.length > 0;
+
+  const quizProgressPercent =
+    quizProgressTotal > 0
+      ? Math.round((quizProgressAnswered / quizProgressTotal) * 100)
+      : 0;
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-6 py-3">
-        <ModeSelector mode={mode} onModeChange={(m) => { setMode(m); setQuizStarted(false); }} />
-        <p className="text-xs text-muted-foreground">
-          {mode === "quiz"
-            ? `${sampleQuizQuestions.length} questions available`
-            : `${sampleFlashcards.length} flashcards`}
-        </p>
+      <div className="flex shrink-0 flex-col border-b bg-background">
+        <div className="flex items-center justify-end gap-2 px-6 py-2">
+          <p className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground sm:text-xs">
+            {mode === "quiz"
+              ? hasStudyScope
+                ? `${quizAvailable} question${quizAvailable === 1 ? "" : "s"} for current study`
+                : "No study topics"
+              : hasStudyScope
+                ? `${flashcardAvailable} flashcard${flashcardAvailable === 1 ? "" : "s"} for current study`
+                : "No study topics"}
+          </p>
+          <ModeSelector
+            mode={mode}
+            onModeChange={(m) => {
+              setMode(m);
+              setQuizStarted(false);
+              setQuizSession(null);
+              setShowQuizStartForm(false);
+              setResumeSnapshot(null);
+            }}
+          />
+        </div>
+        {mode === "quiz" &&
+          quizStarted &&
+          quizSession &&
+          quizProgressTotal > 0 && (
+            <div className="sticky top-0 z-20 border-t border-border/60 bg-background/95 px-6 py-2.5 shadow-[0_1px_0_0_hsl(var(--border)/0.4)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/90">
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Progress</span>
+                <span className="tabular-nums">
+                  {quizProgressAnswered} of {quizProgressTotal} checked
+                </span>
+              </div>
+              <Progress
+                value={quizProgressPercent}
+                className="mt-2 w-full gap-0"
+              />
+            </div>
+          )}
       </div>
 
       <div className="flex-1 overflow-hidden">
-        {mode === "flashcard" ? (
-          <FlashcardView topics={topics} studyTopicIds={studyTopicIds} />
-        ) : quizStarted ? (
-          <QuizView onBack={() => setQuizStarted(false)} />
+        {!hasStudyScope ? (
+          <StudyScopeEmpty />
+        ) : mode === "flashcard" ? (
+          <FlashcardView studyTopics={studyTopics} />
+        ) : quizStarted && quizSession ? (
+          <QuizView
+            key={quizRunKey}
+            settings={quizSession}
+            resumeSnapshot={resumeSnapshot}
+            onBack={() => {
+              setResumeSnapshot(null);
+              setQuizStarted(false);
+              setQuizSession(null);
+              setShowQuizStartForm(false);
+            }}
+            onProgressScopeChange={handleQuizProgressScopeChange}
+            onQuestionRevealed={handleQuizQuestionRevealed}
+            onQuizSaved={bumpSavedList}
+          />
+        ) : !showQuizStartForm ? (
+          <QuizBrowseView
+            allTopics={topics}
+            savedListVersion={savedListVersion}
+            onNewQuiz={() => setShowQuizStartForm(true)}
+            onContinue={handleContinueSavedQuiz}
+          />
         ) : (
-          <QuizSettingsPanel onStart={() => setQuizStarted(true)} />
+          <QuizSettingsPanel
+            studyTopics={studyTopics}
+            studyTopicIds={studyTopicIds}
+            onBackToSavedList={() => setShowQuizStartForm(false)}
+            onStart={(s) => {
+              setResumeSnapshot(null);
+              setQuizSession(s);
+              setQuizStarted(true);
+              setShowQuizStartForm(false);
+              setQuizRunKey((k) => k + 1);
+            }}
+          />
         )}
       </div>
     </div>

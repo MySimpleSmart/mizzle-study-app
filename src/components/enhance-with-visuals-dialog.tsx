@@ -16,19 +16,29 @@ import {
   Sparkles,
 } from "lucide-react";
 
+export type EnhanceVisualMode = "chart" | "image" | "graph" | "reanalyse";
+
 interface EnhanceWithVisualsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Topic or section title shown in the description */
   contextTitle: string;
+  /** Fires when user picks an option; dialog closes after this */
+  onSelectOption?: (mode: EnhanceVisualMode) => void;
 }
 
 export function EnhanceWithVisualsDialog({
   open,
   onOpenChange,
   contextTitle,
+  onSelectOption,
 }: EnhanceWithVisualsDialogProps) {
   const close = () => onOpenChange(false);
+
+  const choose = (mode: EnhanceVisualMode) => {
+    onSelectOption?.(mode);
+    close();
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,10 +66,10 @@ export function EnhanceWithVisualsDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-start justify-start gap-3 px-3 py-3 text-left font-normal"
-            onClick={close}
+            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-center justify-start gap-3 px-3 py-3 text-left font-normal"
+            onClick={() => choose("chart")}
           >
-            <BarChart3 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <BarChart3 className="h-5 w-5 shrink-0 text-primary" />
             <span className="min-w-0 break-words text-sm font-medium text-foreground">
               Visual / Dynamic Chart
             </span>
@@ -67,10 +77,10 @@ export function EnhanceWithVisualsDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-start justify-start gap-3 px-3 py-3 text-left font-normal"
-            onClick={close}
+            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-center justify-start gap-3 px-3 py-3 text-left font-normal"
+            onClick={() => choose("image")}
           >
-            <ImageIcon className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <ImageIcon className="h-5 w-5 shrink-0 text-primary" />
             <span className="min-w-0 break-words text-sm font-medium text-foreground">
               Image
             </span>
@@ -78,10 +88,10 @@ export function EnhanceWithVisualsDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-start justify-start gap-3 px-3 py-3 text-left font-normal"
-            onClick={close}
+            className="h-auto min-h-14 w-full min-w-0 shrink !whitespace-normal items-center justify-start gap-3 px-3 py-3 text-left font-normal"
+            onClick={() => choose("graph")}
           >
-            <LineChart className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <LineChart className="h-5 w-5 shrink-0 text-primary" />
             <span className="min-w-0 break-words text-sm font-medium text-foreground">
               Graph
             </span>
@@ -89,10 +99,10 @@ export function EnhanceWithVisualsDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto w-full min-w-0 shrink !whitespace-normal items-start justify-start gap-3 px-3 py-3 text-left font-normal"
-            onClick={close}
+            className="h-auto w-full min-w-0 shrink !whitespace-normal items-center justify-start gap-3 px-3 py-3 text-left font-normal"
+            onClick={() => choose("reanalyse")}
           >
-            <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <RefreshCw className="h-5 w-5 shrink-0 text-primary" />
             <span className="flex min-w-0 flex-col gap-0.5 break-words text-left">
               <span className="text-sm font-medium text-foreground">
                 Re-analyse & generate (this topic only)
