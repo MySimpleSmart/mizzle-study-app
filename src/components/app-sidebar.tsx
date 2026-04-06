@@ -24,7 +24,7 @@ interface AppSidebarProps {
   activeSectionCount: number;
   sources: Source[];
   onSelectTopic: (topicId: string) => void;
-  onSelectTopicsForSection: (topicIds: string[]) => void;
+  onOpenSectionInWorkspace: (topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
   onArchiveSection: (sectionId: string) => void;
@@ -75,7 +75,7 @@ export function AppSidebar({
   activeSectionCount,
   sources,
   onSelectTopic,
-  onSelectTopicsForSection,
+  onOpenSectionInWorkspace,
   onGenerateSectionClick,
   generateDisabled,
   onArchiveSection,
@@ -126,7 +126,7 @@ export function AppSidebar({
               <div className="px-4 pt-5 pb-4">
                 <SectionsPanel
                   sections={sections}
-                  onSelectTopicsForSection={onSelectTopicsForSection}
+                  onOpenSectionInWorkspace={onOpenSectionInWorkspace}
                   onGenerateSectionClick={onGenerateSectionClick}
                   generateDisabled={generateDisabled}
                   onArchiveSection={onArchiveSection}

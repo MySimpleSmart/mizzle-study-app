@@ -45,8 +45,8 @@ export default function Home() {
     );
   };
 
-  const selectTopicsForSection = (topicIds: string[]) => {
-    setBriefSelection(topicIds);
+  /** Opens section content in the main workspace only; does not change Brief topic chips */
+  const openSectionInWorkspace = (topicIds: string[]) => {
     setStudyTopicIds(topicIds);
   };
 
@@ -162,7 +162,7 @@ export default function Home() {
               activeSectionCount={activeSections.length}
               sources={sampleSources}
               onSelectTopic={selectTopic}
-              onSelectTopicsForSection={selectTopicsForSection}
+              onOpenSectionInWorkspace={openSectionInWorkspace}
               onGenerateSectionClick={handleGenerateSectionClick}
               generateDisabled={!canGenerateFromSelection}
               onArchiveSection={archiveSection}

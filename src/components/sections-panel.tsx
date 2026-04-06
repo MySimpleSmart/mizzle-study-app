@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 interface SectionsPanelProps {
   sections: Section[];
-  onSelectTopicsForSection: (topicIds: string[]) => void;
+  onOpenSectionInWorkspace: (topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
   onArchiveSection: (sectionId: string) => void;
@@ -35,7 +35,7 @@ interface SectionsPanelProps {
 
 export function SectionsPanel({
   sections,
-  onSelectTopicsForSection,
+  onOpenSectionInWorkspace,
   onGenerateSectionClick,
   generateDisabled,
   onArchiveSection,
@@ -104,11 +104,11 @@ export function SectionsPanel({
                 tabIndex={0}
                 aria-label={`Open study section: ${section.title}`}
                 className="flex cursor-pointer flex-col gap-3 px-4 pt-4 pb-3 text-left outline-none transition-colors hover:bg-muted/25 focus-visible:ring-2 focus-visible:ring-ring/50"
-                onClick={() => onSelectTopicsForSection(section.topicIds)}
+                onClick={() => onOpenSectionInWorkspace(section.topicIds)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onSelectTopicsForSection(section.topicIds);
+                    onOpenSectionInWorkspace(section.topicIds);
                   }
                 }}
               >
