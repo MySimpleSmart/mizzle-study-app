@@ -15,7 +15,14 @@ import {
 } from "@/lib/data";
 
 function firstActiveTopicIds(sections: Section[]): string[] {
-  const active = sections.filter((s) => !s.archived);
+  const active = sections
+    .filter((s) => !s.archived)
+    .slice()
+    .sort((a, b) => {
+      const byDate = b.generatedAt.localeCompare(a.generatedAt);
+      if (byDate !== 0) return byDate;
+      return b.id.localeCompare(a.id);
+    });
   return active.length > 0 ? active[0].topicIds : [];
 }
 
@@ -23,6 +30,8 @@ export default function Home() {
   const [briefSelection, setBriefSelection] = useState<string[]>([]);
   const [studyTopicIds, setStudyTopicIds] = useState<string[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  /** Section currently driving the main workspace; edits (e.g. add topic) sync to this card */
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
 
   const activeSections = useMemo(
     () => sections.filter((s) => !s.archived),
@@ -46,8 +55,29 @@ export default function Home() {
   };
 
   /** Opens section content in the main workspace only; does not change Brief topic chips */
-  const openSectionInWorkspace = (topicIds: string[]) => {
+  const openSectionInWorkspace = (sectionId: string, topicIds: string[]) => {
     setStudyTopicIds(topicIds);
+    setActiveSectionId(sectionId);
+  };
+
+  const addStudyTopic = (topicId: string) => {
+    setStudyTopicIds((prev) =>
+      prev.includes(topicId) ? prev : [...prev, topicId]
+    );
+    if (!activeSectionId) return;
+    setSections((prev) =>
+      prev.map((s) => {
+        if (s.id !== activeSectionId) return s;
+        if (s.topicIds.includes(topicId)) return s;
+        const nextIds = [...s.topicIds, topicId];
+        return {
+          ...s,
+          topicIds: nextIds,
+          title: buildCombinedSectionTitle(nextIds, sampleTopics),
+          excerpt: buildSectionExcerpt(nextIds, sampleStudyContent),
+        };
+      })
+    );
   };
 
   const canGenerateFromSelection = useMemo(() => {
@@ -72,10 +102,10 @@ export default function Home() {
       return;
     }
 
+    const newId = `sec-${Date.now()}`;
     setSections((prev) => [
-      ...prev,
       {
-        id: `sec-${Date.now()}`,
+        id: newId,
         topicIds,
         title: buildCombinedSectionTitle(topicIds, sampleTopics),
         excerpt: buildSectionExcerpt(topicIds, sampleStudyContent),
@@ -83,9 +113,11 @@ export default function Home() {
         reviewEditTotal: 0,
         archived: false,
       },
+      ...prev,
     ]);
 
     setStudyTopicIds(topicIds);
+    setActiveSectionId(newId);
     setBriefSelection([]);
   };
 
@@ -93,6 +125,7 @@ export default function Home() {
     removed: Section,
     nextSections: Section[]
   ) => {
+    setActiveSectionId((id) => (id === removed.id ? null : id));
     setStudyTopicIds((study) => {
       if (sectionTopicSetKey(removed.topicIds) !== sectionTopicSetKey(study)) {
         return study;
@@ -175,6 +208,8 @@ export default function Home() {
                 topics={sampleTopics}
                 studyTopicIds={studyTopicIds}
                 workspaceReady={workspaceReady}
+                sections={sections}
+                onAddStudyTopic={addStudyTopic}
               />
             </main>
           </div>

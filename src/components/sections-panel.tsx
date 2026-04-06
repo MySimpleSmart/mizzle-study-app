@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Section } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 interface SectionsPanelProps {
   sections: Section[];
-  onOpenSectionInWorkspace: (topicIds: string[]) => void;
+  onOpenSectionInWorkspace: (sectionId: string, topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
   onArchiveSection: (sectionId: string) => void;
@@ -42,7 +42,16 @@ export function SectionsPanel({
   onRestoreSection,
   onRemoveSection,
 }: SectionsPanelProps) {
-  const activeSections = sections.filter((s) => !s.archived);
+  const activeSections = useMemo(() => {
+    return sections
+      .filter((s) => !s.archived)
+      .slice()
+      .sort((a, b) => {
+        const byDate = b.generatedAt.localeCompare(a.generatedAt);
+        if (byDate !== 0) return byDate;
+        return b.id.localeCompare(a.id);
+      });
+  }, [sections]);
   const archivedSections = sections.filter((s) => s.archived);
 
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -66,22 +75,16 @@ export function SectionsPanel({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full gap-1.5"
-          onClick={onGenerateSectionClick}
-          disabled={generateDisabled}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Generate Section
-        </Button>
-        <p className="text-xs leading-snug text-muted-foreground">
-          One combined section per generate. After you generate, Brief clears so
-          you can select topics for the next section.
-        </p>
-      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full gap-1.5"
+        onClick={onGenerateSectionClick}
+        disabled={generateDisabled}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Generate Section
+      </Button>
 
       {activeSections.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center">
@@ -104,11 +107,13 @@ export function SectionsPanel({
                 tabIndex={0}
                 aria-label={`Open study section: ${section.title}`}
                 className="flex cursor-pointer flex-col gap-3 px-4 pt-4 pb-3 text-left outline-none transition-colors hover:bg-muted/25 focus-visible:ring-2 focus-visible:ring-ring/50"
-                onClick={() => onOpenSectionInWorkspace(section.topicIds)}
+                onClick={() =>
+                  onOpenSectionInWorkspace(section.id, section.topicIds)
+                }
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onOpenSectionInWorkspace(section.topicIds);
+                    onOpenSectionInWorkspace(section.id, section.topicIds);
                   }
                 }}
               >

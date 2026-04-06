@@ -1,80 +1,57 @@
 "use client";
 
-import { useMemo } from "react";
-import type { Topic } from "@/lib/data";
+import { useMemo, useState } from "react";
+import type { Section, Topic } from "@/lib/data";
 import { sampleStudyContent } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { BookOpen, Layers } from "lucide-react";
+import { StudyMarkdown } from "@/components/study-markdown";
+import { BookOpen, Layers, Plus } from "lucide-react";
 
 interface StudyTabProps {
   topics: Topic[];
   studyTopicIds: string[];
+  sections: Section[];
+  onAddStudyTopic: (topicId: string) => void;
 }
 
-function MarkdownContent({ content }: { content: string }) {
-  const html = useMemo(() => {
-    let result = content;
-    result = result.replace(
-      /^### (.+)$/gm,
-      '<h3 class="mt-5 mb-2 text-base font-semibold text-foreground">$1</h3>'
-    );
-    result = result.replace(
-      /^## (.+)$/gm,
-      '<h2 class="mt-6 mb-3 text-lg font-bold text-foreground">$1</h2>'
-    );
-
-    result = result.replace(
-      /\| (.+) \|/g,
-      (match) => `<div class="text-xs text-muted-foreground font-mono">${match}</div>`
-    );
-
-    result = result.replace(
-      /\\\[(.+?)\\\]/g,
-      '<code class="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">$1</code>'
-    );
-    result = result.replace(
-      /\\\((.+?)\\\)/g,
-      '<code class="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">$1</code>'
-    );
-
-    result = result.replace(
-      /\*\*(.+?)\*\*/g,
-      '<strong class="font-semibold text-foreground">$1</strong>'
-    );
-
-    result = result.replace(/^- (.+)$/gm, (_, text) => {
-      return `<li class="flex items-start gap-2 text-sm text-foreground/80 py-0.5"><span class="mt-2 h-1 w-1 shrink-0 rounded-full bg-primary/50"></span><span>${text}</span></li>`;
-    });
-    result = result.replace(
-      /^(\d+)\. (.+)$/gm,
-      '<li class="flex items-start gap-2 text-sm text-foreground/80 py-0.5"><span class="text-xs font-medium text-primary/70 mt-0.5 shrink-0">$1.</span><span>$2</span></li>'
-    );
-
-    result = result.replace(
-      /^(?!<[hld])((?!<).+)$/gm,
-      (match) => {
-        if (match.trim() === "") return "";
-        if (match.startsWith("<")) return match;
-        return `<p class="text-sm leading-relaxed text-foreground/80 mb-2">${match}</p>`;
-      }
-    );
-
-    return result;
-  }, [content]);
-
-  return (
-    <div
-      className="prose-sm max-w-none"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
+/** Topics with study content not yet in this study; prefer topics that appear in generated sections */
+function useAddableTopics(
+  topics: Topic[],
+  studyTopicIds: string[],
+  sections: Section[]
+) {
+  return useMemo(() => {
+    const inSection = new Set(sections.flatMap((s) => s.topicIds));
+    const withContent = topics.filter((t) => sampleStudyContent[t.id]);
+    const notInStudy = withContent.filter((t) => !studyTopicIds.includes(t.id));
+    const fromGenerated = notInStudy.filter((t) => inSection.has(t.id));
+    return fromGenerated.length > 0 ? fromGenerated : notInStudy;
+  }, [topics, studyTopicIds, sections]);
 }
 
-export function StudyTab({ topics, studyTopicIds }: StudyTabProps) {
-  const selectedTopicData = topics.filter((t) =>
-    studyTopicIds.includes(t.id)
-  );
+export function StudyTab({
+  topics,
+  studyTopicIds,
+  sections,
+  onAddStudyTopic,
+}: StudyTabProps) {
+  const [addOpen, setAddOpen] = useState(false);
+  const addableTopics = useAddableTopics(topics, studyTopicIds, sections);
+  const selectedTopicData = useMemo(() => {
+    const map = Object.fromEntries(topics.map((t) => [t.id, t]));
+    return studyTopicIds
+      .map((id) => map[id])
+      .filter((t): t is Topic => Boolean(t));
+  }, [topics, studyTopicIds]);
 
   if (studyTopicIds.length === 0) {
     return (
@@ -96,22 +73,75 @@ export function StudyTab({ topics, studyTopicIds }: StudyTabProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b bg-white px-6 py-3">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <Layers className="h-3.5 w-3.5" />
-          Topics in this study
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {selectedTopicData.map((topic) => (
-            <Badge
-              key={topic.id}
-              variant="secondary"
-              className="font-normal text-foreground"
-            >
-              {topic.name}
-            </Badge>
-          ))}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <Layers className="h-3.5 w-3.5 shrink-0" />
+              Topics in this study
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 border-t border-border/50 pt-3">
+              {selectedTopicData.map((topic) => (
+                <Badge
+                  key={topic.id}
+                  variant="secondary"
+                  className="font-normal text-foreground"
+                >
+                  {topic.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0 gap-1.5"
+            disabled={addableTopics.length === 0}
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add topic
+          </Button>
         </div>
       </div>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>Add a topic</DialogTitle>
+            <DialogDescription>
+              Add study material that already exists for this course. Topics
+              from your generated sections are listed first; you can also add
+              other topics that have notes.
+            </DialogDescription>
+          </DialogHeader>
+          {addableTopics.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Every topic with material is already in this study.
+            </p>
+          ) : (
+            <ScrollArea className="max-h-72 pr-2">
+              <ul className="space-y-1 pb-1">
+                {addableTopics.map((topic) => (
+                  <li key={topic.id}>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-foreground transition-colors hover:bg-muted"
+                      onClick={() => {
+                        onAddStudyTopic(topic.id);
+                        setAddOpen(false);
+                      }}
+                    >
+                      {topic.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+          )}
+        </DialogContent>
+      </Dialog>
+
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-8 p-6">
           {selectedTopicData.map((topic) => {
@@ -120,9 +150,9 @@ export function StudyTab({ topics, studyTopicIds }: StudyTabProps) {
             return (
               <article
                 key={topic.id}
-                className="rounded-xl border bg-white p-6"
+                className="rounded-xl border bg-white px-6 pt-4 pb-6"
               >
-                <MarkdownContent content={content} />
+                <StudyMarkdown content={content} />
               </article>
             );
           })}

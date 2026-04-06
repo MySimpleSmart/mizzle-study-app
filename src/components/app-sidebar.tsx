@@ -24,7 +24,7 @@ interface AppSidebarProps {
   activeSectionCount: number;
   sources: Source[];
   onSelectTopic: (topicId: string) => void;
-  onOpenSectionInWorkspace: (topicIds: string[]) => void;
+  onOpenSectionInWorkspace: (sectionId: string, topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
   onArchiveSection: (sectionId: string) => void;

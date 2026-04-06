@@ -5,13 +5,15 @@ import { StudyTab } from "@/components/study-tab";
 import { QuizTab } from "@/components/quiz-tab";
 import { NotesTab } from "@/components/notes-tab";
 import { ResourcesTab } from "@/components/resources-tab";
-import type { Topic } from "@/lib/data";
+import type { Section, Topic } from "@/lib/data";
 import { BookOpen, BrainCircuit, FolderOpen, PenLine, Sparkles } from "lucide-react";
 
 interface AppWorkspaceProps {
   topics: Topic[];
   studyTopicIds: string[];
   workspaceReady: boolean;
+  sections: Section[];
+  onAddStudyTopic: (topicId: string) => void;
 }
 
 function WorkspaceEmpty() {
@@ -35,6 +37,8 @@ export function AppWorkspace({
   topics,
   studyTopicIds,
   workspaceReady,
+  sections,
+  onAddStudyTopic,
 }: AppWorkspaceProps) {
   return (
     <Tabs defaultValue="study" className="flex h-full flex-col">
@@ -76,7 +80,12 @@ export function AppWorkspace({
       ) : (
         <>
           <TabsContent value="study" className="mt-0 flex-1 overflow-hidden">
-            <StudyTab topics={topics} studyTopicIds={studyTopicIds} />
+            <StudyTab
+              topics={topics}
+              studyTopicIds={studyTopicIds}
+              sections={sections}
+              onAddStudyTopic={onAddStudyTopic}
+            />
           </TabsContent>
           <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
             <QuizTab topics={topics} studyTopicIds={studyTopicIds} />
