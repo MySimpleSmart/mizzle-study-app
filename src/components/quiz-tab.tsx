@@ -507,13 +507,17 @@ function FlashcardViewer({
   cards,
   resumeSnapshot,
   sectionTitle,
+  generationRules,
   onBackToBrowse,
+  onRegenerateSameRules,
   onFlashcardSaved,
 }: {
   cards: Flashcard[];
   resumeSnapshot: SavedFlashcardSnapshot | null;
   sectionTitle: string | null;
+  generationRules: { cardCount: number; topicIds: string[] } | null;
   onBackToBrowse: () => void;
+  onRegenerateSameRules: () => void;
   onFlashcardSaved?: (snapshot: SavedFlashcardSnapshot) => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(() =>
@@ -526,6 +530,7 @@ function FlashcardViewer({
   );
   const [flipped, setFlipped] = useState(() => resumeSnapshot?.flipped ?? false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
   const lastSavedKeyRef = useRef<string | null>(null);
@@ -562,6 +567,17 @@ function FlashcardViewer({
   const confirmLeave = () => {
     setLeaveOpen(false);
     onBackToBrowse();
+  };
+
+  const confirmRestartSameCards = () => {
+    setRestartConfirmOpen(false);
+    setFlipped(false);
+    setCurrentIndex(0);
+  };
+
+  const confirmRegenerateCards = () => {
+    setRestartConfirmOpen(false);
+    onRegenerateSameRules();
   };
 
   const handleSave = useCallback(() => {
@@ -610,11 +626,6 @@ function FlashcardViewer({
     setCurrentIndex((prev) => Math.max(prev - 1, 0));
   };
 
-  const restart = () => {
-    setFlipped(false);
-    setCurrentIndex(0);
-  };
-
   return (
     <>
       <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
@@ -642,6 +653,61 @@ function FlashcardViewer({
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={restartConfirmOpen}
+        onOpenChange={setRestartConfirmOpen}
+      >
+        <DialogContent className="min-w-0 max-w-[calc(100%-2rem)] overflow-hidden sm:max-w-md">
+          <DialogHeader className="min-w-0">
+            <DialogTitle>Restart flashcards</DialogTitle>
+            <DialogDescription className="text-left break-words">
+              Same topic selection and deck size apply when you re-generate, or
+              keep this deck and only reset your place.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex min-w-0 w-full flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-1 py-3 text-left"
+              onClick={confirmRestartSameCards}
+            >
+              <span className="block w-full min-w-0 break-words text-left font-medium text-foreground">
+                Restart same cards
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-xs font-normal text-muted-foreground">
+                Go to the first card, front side up. Your saved set is unchanged
+                until you save again.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-1 py-3 text-left"
+              disabled={!generationRules}
+              onClick={confirmRegenerateCards}
+            >
+              <span className="block w-full min-w-0 break-words text-left font-medium text-foreground">
+                Re-generate cards (same rules)
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-xs font-normal text-muted-foreground">
+                New draw from the bank with the same number of cards and
+                topics.
+              </span>
+            </Button>
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border/60 pt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setRestartConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ScrollArea className="h-full">
         <div className="flex flex-col gap-6 p-6">
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -661,6 +727,18 @@ function FlashcardViewer({
               >
                 <ChevronLeft className="h-4 w-4" aria-hidden />
                 Back
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={cards.length === 0}
+                title="Return to the first card and flip to the front"
+                onClick={() => setRestartConfirmOpen(true)}
+              >
+                <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+                Restart
               </Button>
               <Button
                 type="button"
@@ -730,15 +808,6 @@ function FlashcardViewer({
                 disabled={currentIndex === 0}
               >
                 Previous
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={restart}
-                className="gap-1"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
               </Button>
 
               <Button
@@ -2058,7 +2127,9 @@ function QuizView({
   settings,
   sectionTitle,
   onBack,
-  onRestartQuiz,
+  onRestartQuizSameQuestions,
+  onRegenerateQuizSameRules,
+  onActiveQuestionIds,
   onProgressScopeChange,
   onQuestionRevealed,
   onQuizSaved,
@@ -2067,7 +2138,9 @@ function QuizView({
   settings: QuizSettings;
   sectionTitle: string | null;
   onBack: () => void;
-  onRestartQuiz: () => void;
+  onRestartQuizSameQuestions: () => void;
+  onRegenerateQuizSameRules: () => void;
+  onActiveQuestionIds?: (ids: string[]) => void;
   onProgressScopeChange?: (payload: {
     questionIdsKey: string;
     totalQuestions: number;
@@ -2156,6 +2229,11 @@ function QuizView({
   useEffect(() => {
     setRemovedQuestionIds(new Set());
   }, [builtQuestionIdsKey]);
+
+  useEffect(() => {
+    if (questions.length === 0) return;
+    onActiveQuestionIds?.(questions.map((q) => q.id));
+  }, [builtQuestionIdsKey, onActiveQuestionIds, questions]);
 
   const visibleQuestions = useMemo(
     () => questions.filter((q) => !removedQuestionIds.has(q.id)),
@@ -2282,10 +2360,19 @@ function QuizView({
     onBack();
   }, [onBack]);
 
-  const confirmRestartQuiz = useCallback(() => {
+  const closeRestartDialog = useCallback(() => {
     setRestartConfirmOpen(false);
-    onRestartQuiz();
-  }, [onRestartQuiz]);
+  }, []);
+
+  const chooseRestartSameQuestions = useCallback(() => {
+    setRestartConfirmOpen(false);
+    onRestartQuizSameQuestions();
+  }, [onRestartQuizSameQuestions]);
+
+  const chooseRegenerateQuestions = useCallback(() => {
+    setRestartConfirmOpen(false);
+    onRegenerateQuizSameRules();
+  }, [onRegenerateQuizSameRules]);
 
   if (questions.length === 0 && emptyReason) {
     const body =
@@ -2351,26 +2438,48 @@ function QuizView({
       </Dialog>
 
       <Dialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Restart quiz?</DialogTitle>
-            <DialogDescription>
-              This clears all answers and progress on this run and starts over.
-              {resumeSnapshot
-                ? " Your saved quiz file is unchanged until you save again."
-                : " You may get a different mix of questions from the bank."}
+        <DialogContent className="min-w-0 max-w-[calc(100%-2rem)] overflow-hidden sm:max-w-md">
+          <DialogHeader className="min-w-0">
+            <DialogTitle>Restart quiz</DialogTitle>
+            <DialogDescription className="text-left break-words">
+              Choose how to continue. Question types, number of questions,
+              difficulty, and study scope (topics) stay the same unless you
+              pick a new draw from the bank.
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <div className="mt-4 flex min-w-0 w-full flex-col gap-2">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setRestartConfirmOpen(false)}
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-1 py-3 text-left"
+              onClick={chooseRestartSameQuestions}
             >
-              Cancel
+              <span className="block w-full min-w-0 break-words text-left font-medium text-foreground">
+                Restart same questions
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-xs font-normal text-muted-foreground">
+                Clear answers and keep this exact set of questions. Your saved
+                quiz file is unchanged until you save again.
+              </span>
             </Button>
-            <Button type="button" onClick={confirmRestartQuiz}>
-              Restart
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-1 py-3 text-left"
+              onClick={chooseRegenerateQuestions}
+            >
+              <span className="block w-full min-w-0 break-words text-left font-medium text-foreground">
+                Re-generate questions (same rules)
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-xs font-normal text-muted-foreground">
+                New mix from the question bank using the same types, count,
+                difficulty, and topics.
+              </span>
+            </Button>
+          </div>
+          <div className="mt-4 flex justify-end border-t border-border/60 pt-4">
+            <Button type="button" variant="ghost" onClick={closeRestartDialog}>
+              Cancel
             </Button>
           </div>
         </DialogContent>
@@ -2524,6 +2633,13 @@ export function QuizTab({
     useState<SavedFlashcardSnapshot | null>(null);
   const [flashcardRunKey, setFlashcardRunKey] = useState(0);
   const [activeFlashcards, setActiveFlashcards] = useState<Flashcard[]>([]);
+  /** Last flashcard generation params (card count + topics) for “re-generate same rules”. */
+  const [flashcardGeneration, setFlashcardGeneration] = useState<{
+    cardCount: number;
+    topicIds: string[];
+  } | null>(null);
+  /** Current quiz question ids for this run (fresh or saved) — used for “restart same questions”. */
+  const quizRunQuestionIdsRef = useRef<string[] | null>(null);
 
   const handleContinueSavedQuiz = useCallback((entry: SavedQuizSnapshot) => {
     setResumeSnapshot(entry);
@@ -2533,14 +2649,56 @@ export function QuizTab({
     setQuizRunKey((k) => k + 1);
   }, []);
 
-  const handleRestartQuiz = useCallback(() => {
+  const handleQuizActiveQuestionIds = useCallback((ids: string[]) => {
+    quizRunQuestionIdsRef.current = ids;
+  }, []);
+
+  /** Clear answers and keep the same question set (pinned list when not from a saved file). */
+  const handleRestartQuizSameQuestions = useCallback(() => {
     quizAnsweredIdsRef.current = new Set();
     setQuizProgressAnswered(0);
-    setResumeSnapshot((prev) =>
-      prev ? { ...prev, answers: {} } : null
-    );
+    if (resumeSnapshot) {
+      setResumeSnapshot({ ...resumeSnapshot, answers: {} });
+    } else if (
+      quizSession &&
+      quizRunQuestionIdsRef.current &&
+      quizRunQuestionIdsRef.current.length > 0
+    ) {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `quiz-run-${Date.now()}`;
+      setResumeSnapshot({
+        id,
+        savedAt: new Date().toISOString(),
+        settings: quizSession,
+        questionIds: quizRunQuestionIdsRef.current,
+        answers: {},
+      });
+    } else {
+      setResumeSnapshot(null);
+    }
+    setQuizRunKey((k) => k + 1);
+  }, [quizSession, resumeSnapshot]);
+
+  /** New random draw with identical settings / study scope (clears saved-in-progress shape). */
+  const handleRegenerateQuizSameRules = useCallback(() => {
+    quizAnsweredIdsRef.current = new Set();
+    setQuizProgressAnswered(0);
+    quizRunQuestionIdsRef.current = null;
+    setResumeSnapshot(null);
     setQuizRunKey((k) => k + 1);
   }, []);
+
+  const handleRegenerateFlashcardsSameRules = useCallback(() => {
+    if (!flashcardGeneration) return;
+    const filtered = sampleFlashcards.filter((c) =>
+      flashcardGeneration.topicIds.includes(c.topicId)
+    );
+    setActiveFlashcards(filtered.slice(0, flashcardGeneration.cardCount));
+    setFlashcardResume(null);
+    setFlashcardRunKey((k) => k + 1);
+  }, [flashcardGeneration]);
 
   const handleQuizProgressScopeChange = useCallback(
     (payload: { questionIdsKey: string; totalQuestions: number }) => {
@@ -2739,6 +2897,10 @@ export function QuizTab({
                     bumpSavedFlashcards();
                     return;
                   }
+                  setFlashcardGeneration({
+                    cardCount: entry.flashcardIds.length,
+                    topicIds: entry.topicIds,
+                  });
                   setActiveFlashcards(resolved);
                   setFlashcardResume(entry);
                   setFlashcardStarted(true);
@@ -2753,6 +2915,7 @@ export function QuizTab({
                     topicIds.includes(c.topicId)
                   );
                   const nextCards = filtered.slice(0, count);
+                  setFlashcardGeneration({ cardCount: count, topicIds });
                   setActiveFlashcards(nextCards);
                   setFlashcardResume(null);
                   setFlashcardStarted(true);
@@ -2767,14 +2930,21 @@ export function QuizTab({
               cards={activeFlashcards}
               resumeSnapshot={flashcardResume}
               sectionTitle={sectionTitle}
+              generationRules={flashcardGeneration}
               onBackToBrowse={() => {
                 setFlashcardStarted(false);
                 setFlashcardResume(null);
                 setActiveFlashcards([]);
+                setFlashcardGeneration(null);
                 setShowFlashcardSettingsForm(false);
               }}
+              onRegenerateSameRules={handleRegenerateFlashcardsSameRules}
               onFlashcardSaved={(snapshot) => {
                 setFlashcardResume(snapshot);
+                setFlashcardGeneration({
+                  cardCount: snapshot.flashcardIds.length,
+                  topicIds: snapshot.topicIds,
+                });
                 bumpSavedFlashcards();
               }}
             />
@@ -2791,7 +2961,9 @@ export function QuizTab({
               setQuizSession(null);
               setShowQuizStartForm(false);
             }}
-            onRestartQuiz={handleRestartQuiz}
+            onRestartQuizSameQuestions={handleRestartQuizSameQuestions}
+            onRegenerateQuizSameRules={handleRegenerateQuizSameRules}
+            onActiveQuestionIds={handleQuizActiveQuestionIds}
             onProgressScopeChange={handleQuizProgressScopeChange}
             onQuestionRevealed={handleQuizQuestionRevealed}
             onQuizSaved={(snapshot) => {
@@ -2812,6 +2984,7 @@ export function QuizTab({
             studyTopicIds={studyTopicIds}
             onBackToSavedList={() => setShowQuizStartForm(false)}
             onStart={(s) => {
+              quizRunQuestionIdsRef.current = null;
               setResumeSnapshot(null);
               setQuizSession(s);
               setQuizStarted(true);
