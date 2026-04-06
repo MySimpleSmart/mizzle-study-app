@@ -31,7 +31,7 @@ type QuizMode = "quiz" | "flashcard";
 
 interface QuizTabProps {
   topics: Topic[];
-  selectedTopics: string[];
+  studyTopicIds: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -81,15 +81,15 @@ function ModeSelector({
 
 function FlashcardSettingsPanel({
   topics,
-  selectedTopics,
+  studyTopicIds,
   onGenerate,
 }: {
   topics: Topic[];
-  selectedTopics: string[];
+  studyTopicIds: string[];
   onGenerate: (cardCount: number, topicIds: string[]) => void;
 }) {
   const [cardCount, setCardCount] = useState("8");
-  const [chosenTopics, setChosenTopics] = useState<string[]>(selectedTopics);
+  const [chosenTopics, setChosenTopics] = useState<string[]>(studyTopicIds);
 
   const toggleTopic = (id: string) => {
     setChosenTopics((prev) =>
@@ -303,10 +303,10 @@ function FlashcardViewer({
 
 function FlashcardView({
   topics,
-  selectedTopics,
+  studyTopicIds,
 }: {
   topics: Topic[];
-  selectedTopics: string[];
+  studyTopicIds: string[];
 }) {
   const [generated, setGenerated] = useState(false);
   const [activeCards, setActiveCards] = useState<Flashcard[]>([]);
@@ -324,7 +324,7 @@ function FlashcardView({
     return (
       <FlashcardSettingsPanel
         topics={topics}
-        selectedTopics={selectedTopics}
+        studyTopicIds={studyTopicIds}
         onGenerate={handleGenerate}
       />
     );
@@ -637,7 +637,7 @@ function QuizView({
 // Main Export
 // ---------------------------------------------------------------------------
 
-export function QuizTab({ topics, selectedTopics }: QuizTabProps) {
+export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
   const [mode, setMode] = useState<QuizMode>("quiz");
   const [quizStarted, setQuizStarted] = useState(false);
 
@@ -654,7 +654,7 @@ export function QuizTab({ topics, selectedTopics }: QuizTabProps) {
 
       <div className="flex-1 overflow-hidden">
         {mode === "flashcard" ? (
-          <FlashcardView topics={topics} selectedTopics={selectedTopics} />
+          <FlashcardView topics={topics} studyTopicIds={studyTopicIds} />
         ) : quizStarted ? (
           <QuizView onBack={() => setQuizStarted(false)} />
         ) : (

@@ -23,6 +23,7 @@ interface AppSidebarProps {
   sections: Section[];
   sources: Source[];
   onSelectTopic: (topicId: string) => void;
+  onSelectTopicsForSection: (topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
 }
@@ -69,6 +70,7 @@ export function AppSidebar({
   sections,
   sources,
   onSelectTopic,
+  onSelectTopicsForSection,
   onGenerateSectionClick,
   generateDisabled,
 }: AppSidebarProps) {
@@ -117,7 +119,7 @@ export function AppSidebar({
                 <SectionsPanel
                   sections={sections}
                   topics={topics}
-                  onSelectTopic={onSelectTopic}
+                  onSelectTopicsForSection={onSelectTopicsForSection}
                   onGenerateSectionClick={onGenerateSectionClick}
                   generateDisabled={generateDisabled}
                 />

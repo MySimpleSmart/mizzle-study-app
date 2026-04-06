@@ -3,12 +3,13 @@
 import { useMemo } from "react";
 import type { Topic } from "@/lib/data";
 import { sampleStudyContent } from "@/lib/data";
+import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Layers } from "lucide-react";
 
 interface StudyTabProps {
   topics: Topic[];
-  selectedTopics: string[];
+  studyTopicIds: string[];
 }
 
 function MarkdownContent({ content }: { content: string }) {
@@ -70,12 +71,12 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-export function StudyTab({ topics, selectedTopics }: StudyTabProps) {
+export function StudyTab({ topics, studyTopicIds }: StudyTabProps) {
   const selectedTopicData = topics.filter((t) =>
-    selectedTopics.includes(t.id)
+    studyTopicIds.includes(t.id)
   );
 
-  if (selectedTopics.length === 0) {
+  if (studyTopicIds.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
@@ -84,8 +85,8 @@ export function StudyTab({ topics, selectedTopics }: StudyTabProps) {
             Select topics to study
           </h3>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Choose one or more topics from the sidebar to view AI-generated
-            study materials.
+            Generate a section from Brief, or click a section in the sidebar to
+            load its topics here.
           </p>
         </div>
       </div>
@@ -93,21 +94,40 @@ export function StudyTab({ topics, selectedTopics }: StudyTabProps) {
   }
 
   return (
-    <ScrollArea className="h-full">
-      <div className="space-y-8 p-6">
-        {selectedTopicData.map((topic) => {
-          const content = sampleStudyContent[topic.id];
-          if (!content) return null;
-          return (
-            <article
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="shrink-0 border-b bg-white px-6 py-3">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <Layers className="h-3.5 w-3.5" />
+          Topics in this study
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {selectedTopicData.map((topic) => (
+            <Badge
               key={topic.id}
-              className="rounded-xl border bg-white p-6"
+              variant="secondary"
+              className="font-normal text-foreground"
             >
-              <MarkdownContent content={content} />
-            </article>
-          );
-        })}
+              {topic.name}
+            </Badge>
+          ))}
+        </div>
       </div>
-    </ScrollArea>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="space-y-8 p-6">
+          {selectedTopicData.map((topic) => {
+            const content = sampleStudyContent[topic.id];
+            if (!content) return null;
+            return (
+              <article
+                key={topic.id}
+                className="rounded-xl border bg-white p-6"
+              >
+                <MarkdownContent content={content} />
+              </article>
+            );
+          })}
+        </div>
+      </ScrollArea>
+    </div>
   );
 }

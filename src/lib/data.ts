@@ -34,10 +34,29 @@ export interface Topic {
 
 export interface Section {
   id: string;
-  topicId: string;
+  /** Topics studied together as one combined learning unit */
+  topicIds: string[];
   title: string;
   generatedAt: string;
   wordCount: number;
+}
+
+/** Stable key for comparing whether two sections cover the same topic set */
+export function sectionTopicSetKey(topicIds: string[]): string {
+  return [...topicIds].sort().join("|");
+}
+
+export function buildCombinedSectionTitle(
+  topicIds: string[],
+  topics: Topic[]
+): string {
+  const names = topicIds
+    .map((id) => topics.find((t) => t.id === id)?.name)
+    .filter(Boolean) as string[];
+  if (names.length === 0) return "Study unit";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} & ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
 }
 
 export interface QuizQuestion {
@@ -153,17 +172,10 @@ export const sampleTopics: Topic[] = [
 export const sampleSections: Section[] = [
   {
     id: "sec1",
-    topicId: "t1",
-    title: "Supervised Learning",
+    topicIds: ["t1", "t3"],
+    title: "Supervised Learning & Neural Networks",
     generatedAt: "2025-04-03",
-    wordCount: 1240,
-  },
-  {
-    id: "sec2",
-    topicId: "t3",
-    title: "Neural Networks",
-    generatedAt: "2025-04-03",
-    wordCount: 980,
+    wordCount: 2220,
   },
 ];
 

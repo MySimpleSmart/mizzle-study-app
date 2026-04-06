@@ -8,17 +8,22 @@ import {
   sampleSources,
   sampleTopics,
   sampleStudyContent,
+  buildCombinedSectionTitle,
+  sectionTopicSetKey,
   type Section,
 } from "@/lib/data";
 
 export default function Home() {
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  /** Topics checked in Brief — only for building the *next* section */
+  const [briefSelection, setBriefSelection] = useState<string[]>([]);
+  /** Topics driving Study / Quiz — last generated or section you clicked */
+  const [studyTopicIds, setStudyTopicIds] = useState<string[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
 
   const workspaceReady = sections.length > 0;
 
   const toggleTopic = (topicId: string) => {
-    setSelectedTopics((prev) =>
+    setBriefSelection((prev) =>
       prev.includes(topicId)
         ? prev.filter((id) => id !== topicId)
         : [...prev, topicId]
@@ -26,50 +31,57 @@ export default function Home() {
   };
 
   const selectTopic = (topicId: string) => {
-    setSelectedTopics((prev) =>
+    setBriefSelection((prev) =>
       prev.includes(topicId) ? prev : [...prev, topicId]
     );
   };
 
+  const selectTopicsForSection = (topicIds: string[]) => {
+    setBriefSelection(topicIds);
+    setStudyTopicIds(topicIds);
+  };
+
   const canGenerateFromSelection = useMemo(() => {
-    if (selectedTopics.length === 0) return false;
-    const existing = new Set(sections.map((s) => s.topicId));
-    return selectedTopics.some(
-      (id) => sampleStudyContent[id] && !existing.has(id)
+    if (briefSelection.length === 0) return false;
+    const ids = briefSelection.filter((id) => sampleStudyContent[id]);
+    if (ids.length === 0) return false;
+    const key = sectionTopicSetKey(ids);
+    const duplicate = sections.some(
+      (s) => sectionTopicSetKey(s.topicIds) === key
     );
-  }, [selectedTopics, sections]);
+    return !duplicate;
+  }, [briefSelection, sections]);
 
   const handleGenerateSectionClick = () => {
-    if (!canGenerateFromSelection) return;
+    const topicIds = briefSelection.filter((id) => sampleStudyContent[id]);
+    if (topicIds.length === 0) return;
+    if (
+      sections.some(
+        (s) => sectionTopicSetKey(s.topicIds) === sectionTopicSetKey(topicIds)
+      )
+    ) {
+      return;
+    }
 
-    const generatedTopicIds = new Set(sections.map((s) => s.topicId));
-    const toAdd = selectedTopics.filter(
-      (id) => sampleStudyContent[id] && !generatedTopicIds.has(id)
-    );
-
-    if (toAdd.length === 0) return;
-
-    const now = Date.now();
-    setSections((prev) => {
-      const next = [...prev];
-      toAdd.forEach((topicId, i) => {
-        const topic = sampleTopics.find((t) => t.id === topicId);
-        const content = sampleStudyContent[topicId] ?? "";
-        const wordCount = content.split(/\s+/).length;
-        next.push({
-          id: `sec-${now}-${i}`,
-          topicId,
-          title: topic?.name ?? "Untitled",
-          generatedAt: new Date().toISOString().split("T")[0],
-          wordCount,
-        });
-      });
-      return next;
+    let wordCount = 0;
+    topicIds.forEach((id) => {
+      const c = sampleStudyContent[id] ?? "";
+      wordCount += c.split(/\s+/).filter(Boolean).length;
     });
 
-    setSelectedTopics((prev) =>
-      Array.from(new Set([...prev, ...toAdd]))
-    );
+    setSections((prev) => [
+      ...prev,
+      {
+        id: `sec-${Date.now()}`,
+        topicIds,
+        title: buildCombinedSectionTitle(topicIds, sampleTopics),
+        generatedAt: new Date().toISOString().split("T")[0],
+        wordCount,
+      },
+    ]);
+
+    setStudyTopicIds(topicIds);
+    setBriefSelection([]);
   };
 
   return (
@@ -96,11 +108,12 @@ export default function Home() {
           <div className="flex flex-1 overflow-hidden">
             <AppSidebar
               topics={sampleTopics}
-              selectedTopics={selectedTopics}
+              selectedTopics={briefSelection}
               onToggleTopic={toggleTopic}
               sections={sections}
               sources={sampleSources}
               onSelectTopic={selectTopic}
+              onSelectTopicsForSection={selectTopicsForSection}
               onGenerateSectionClick={handleGenerateSectionClick}
               generateDisabled={!canGenerateFromSelection}
             />
@@ -108,7 +121,7 @@ export default function Home() {
             <main className="flex-1 overflow-hidden bg-background">
               <AppWorkspace
                 topics={sampleTopics}
-                selectedTopics={selectedTopics}
+                studyTopicIds={studyTopicIds}
                 workspaceReady={workspaceReady}
               />
             </main>

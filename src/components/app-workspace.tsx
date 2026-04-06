@@ -10,7 +10,7 @@ import { BookOpen, BrainCircuit, FolderOpen, PenLine, Sparkles } from "lucide-re
 
 interface AppWorkspaceProps {
   topics: Topic[];
-  selectedTopics: string[];
+  studyTopicIds: string[];
   workspaceReady: boolean;
 }
 
@@ -33,7 +33,7 @@ function WorkspaceEmpty() {
 
 export function AppWorkspace({
   topics,
-  selectedTopics,
+  studyTopicIds,
   workspaceReady,
 }: AppWorkspaceProps) {
   return (
@@ -76,10 +76,10 @@ export function AppWorkspace({
       ) : (
         <>
           <TabsContent value="study" className="mt-0 flex-1 overflow-hidden">
-            <StudyTab topics={topics} selectedTopics={selectedTopics} />
+            <StudyTab topics={topics} studyTopicIds={studyTopicIds} />
           </TabsContent>
           <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
-            <QuizTab topics={topics} selectedTopics={selectedTopics} />
+            <QuizTab topics={topics} studyTopicIds={studyTopicIds} />
           </TabsContent>
           <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
             <NotesTab topics={topics} />
