@@ -126,7 +126,6 @@ export function AppSidebar({
               <div className="px-4 pt-5 pb-4">
                 <SectionsPanel
                   sections={sections}
-                  topics={topics}
                   onSelectTopicsForSection={onSelectTopicsForSection}
                   onGenerateSectionClick={onGenerateSectionClick}
                   generateDisabled={generateDisabled}

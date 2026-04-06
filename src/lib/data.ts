@@ -37,8 +37,11 @@ export interface Section {
   /** Topics studied together as one combined learning unit */
   topicIds: string[];
   title: string;
+  /** Plain-text preview derived from combined study content for this section */
+  excerpt: string;
   generatedAt: string;
-  wordCount: number;
+  /** Total times this section was reviewed or edited (combined) */
+  reviewEditTotal: number;
   /** When true, hidden from the main list (saved in archive) */
   archived?: boolean;
 }
@@ -59,6 +62,47 @@ export function buildCombinedSectionTitle(
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} & ${names[1]}`;
   return `${names.slice(0, -1).join(", ")} & ${names[names.length - 1]}`;
+}
+
+/** Strip markdown / list noise for a readable plain-text excerpt */
+function stripStudyMarkdownToPlain(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*\n]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/\$[^$\n]+\$/g, "")
+    .replace(/\\\([^)]*\\\)/g, "")
+    .replace(/^[-*]\s+/gm, "")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Build a short excerpt from the combined study markdown for the given topics
+ * (order follows topicIds; content is concatenated in that order).
+ */
+export function buildSectionExcerpt(
+  topicIds: string[],
+  studyContent: Record<string, string>,
+  maxLength = 120
+): string {
+  const combined = topicIds
+    .map((id) => studyContent[id] ?? "")
+    .filter(Boolean)
+    .join("\n\n");
+  if (!combined.trim()) return "";
+  const plain = stripStudyMarkdownToPlain(combined);
+  if (plain.length <= maxLength) return plain;
+  const cut = plain.slice(0, maxLength);
+  const lastSpace = cut.lastIndexOf(" ");
+  const trimmed =
+    lastSpace > maxLength * 0.55 ? cut.slice(0, lastSpace) : cut;
+  return `${trimmed.trimEnd()}…`;
 }
 
 export interface QuizQuestion {
@@ -168,16 +212,6 @@ export const sampleTopics: Topic[] = [
     name: "Feature Engineering",
     description:
       "The process of selecting, transforming, and creating input features.",
-  },
-];
-
-export const sampleSections: Section[] = [
-  {
-    id: "sec1",
-    topicIds: ["t1", "t3"],
-    title: "Supervised Learning & Neural Networks",
-    generatedAt: "2025-04-03",
-    wordCount: 2220,
   },
 ];
 
@@ -386,6 +420,17 @@ The quality of features often matters more than the choice of algorithm. Well-en
 - Check for multicollinearity
 - Automate feature pipelines for reproducibility`,
 };
+
+export const sampleSections: Section[] = [
+  {
+    id: "sec1",
+    topicIds: ["t1", "t3"],
+    title: "Supervised Learning & Neural Networks",
+    excerpt: buildSectionExcerpt(["t1", "t3"], sampleStudyContent),
+    generatedAt: "2025-04-03",
+    reviewEditTotal: 14,
+  },
+];
 
 export const sampleQuizQuestions: QuizQuestion[] = [
   {

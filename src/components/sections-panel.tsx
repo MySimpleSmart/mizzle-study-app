@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Section, Topic } from "@/lib/data";
+import type { Section } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,6 +14,7 @@ import {
 import {
   Archive,
   BookOpen,
+  CheckCircle2,
   ChevronDown,
   Clock,
   Plus,
@@ -24,7 +25,6 @@ import { cn } from "@/lib/utils";
 
 interface SectionsPanelProps {
   sections: Section[];
-  topics: Topic[];
   onSelectTopicsForSection: (topicIds: string[]) => void;
   onGenerateSectionClick: () => void;
   generateDisabled: boolean;
@@ -35,7 +35,6 @@ interface SectionsPanelProps {
 
 export function SectionsPanel({
   sections,
-  topics,
   onSelectTopicsForSection,
   onGenerateSectionClick,
   generateDisabled,
@@ -43,7 +42,6 @@ export function SectionsPanel({
   onRestoreSection,
   onRemoveSection,
 }: SectionsPanelProps) {
-  const topicMap = Object.fromEntries(topics.map((t) => [t.id, t]));
   const activeSections = sections.filter((s) => !s.archived);
   const archivedSections = sections.filter((s) => s.archived);
 
@@ -97,64 +95,71 @@ export function SectionsPanel({
         </div>
       ) : (
         activeSections.map((section) => {
-          const names = section.topicIds
-            .map((id) => topicMap[id]?.name)
-            .filter(Boolean);
           return (
             <div
               key={section.id}
-              className="group flex gap-2 rounded-lg border bg-white p-3 transition-colors hover:border-primary/30"
+              className="group flex flex-col rounded-lg border bg-white transition-colors hover:border-primary/30"
             >
-              <button
-                type="button"
+              <div
+                tabIndex={0}
+                aria-label={`Open study section: ${section.title}`}
+                className="flex cursor-pointer flex-col gap-3 px-4 pt-4 pb-3 text-left outline-none transition-colors hover:bg-muted/25 focus-visible:ring-2 focus-visible:ring-ring/50"
                 onClick={() => onSelectTopicsForSection(section.topicIds)}
-                className="min-w-0 flex-1 cursor-default text-left transition-colors hover:cursor-pointer"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectTopicsForSection(section.topicIds);
+                  }
+                }}
               >
-                <div className="text-sm font-medium text-foreground">
-                  {section.title}
-                </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    {section.generatedAt}
-                  </span>
-                  <span>{section.wordCount.toLocaleString()} words</span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">
+                <div className="flex w-full min-w-0 items-start justify-between gap-3">
+                  <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
                     {section.topicIds.length} topic
                     {section.topicIds.length !== 1 ? "s" : ""}
                   </span>
+                  <div
+                    className="flex shrink-0 gap-0.5"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      aria-label="Archive section"
+                      title="Archive"
+                      className="rounded-md p-1.5 text-muted-foreground opacity-70 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100"
+                      onClick={() => setPendingArchive(section)}
+                    >
+                      <Archive className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Delete section permanently"
+                      title="Delete permanently"
+                      className="rounded-md p-1.5 text-muted-foreground opacity-70 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                      onClick={() => setPendingPermanentDelete(section)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-                {names.length > 0 && (
-                  <p className="mt-1.5 text-xs text-muted-foreground/80 line-clamp-2">
-                    {names.join(" · ")}
+                <p className="w-full min-w-0 text-sm font-medium leading-snug text-foreground">
+                  {section.title}
+                </p>
+                {section.excerpt.trim() !== "" && (
+                  <p className="w-full min-w-0 text-xs leading-relaxed text-muted-foreground/80 line-clamp-2">
+                    {section.excerpt}
                   </p>
                 )}
-              </button>
-              <div className="flex shrink-0 items-start gap-0.5">
-                <button
-                  type="button"
-                  aria-label="Archive section"
-                  title="Archive"
-                  className="rounded-md p-1.5 text-muted-foreground opacity-70 transition-colors hover:bg-muted hover:text-foreground group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPendingArchive(section);
-                  }}
-                >
-                  <Archive className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Delete section permanently"
-                  title="Delete permanently"
-                  className="rounded-md p-1.5 text-muted-foreground opacity-70 transition-colors hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setPendingPermanentDelete(section);
-                  }}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+              </div>
+              <div className="flex w-full items-center justify-between gap-3 border-t border-border/50 px-4 pb-4 pt-3 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                  {section.generatedAt}
+                </span>
+                <span className="inline-flex items-center gap-1.5 tabular-nums text-foreground/75">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                  {section.reviewEditTotal}
+                </span>
               </div>
             </div>
           );
@@ -234,7 +239,7 @@ export function SectionsPanel({
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-3">
             <Button
               type="button"
               variant="outline"
@@ -273,7 +278,7 @@ export function SectionsPanel({
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-3">
             <Button
               type="button"
               variant="outline"

@@ -9,6 +9,7 @@ import {
   sampleTopics,
   sampleStudyContent,
   buildCombinedSectionTitle,
+  buildSectionExcerpt,
   sectionTopicSetKey,
   type Section,
 } from "@/lib/data";
@@ -71,20 +72,15 @@ export default function Home() {
       return;
     }
 
-    let wordCount = 0;
-    topicIds.forEach((id) => {
-      const c = sampleStudyContent[id] ?? "";
-      wordCount += c.split(/\s+/).filter(Boolean).length;
-    });
-
     setSections((prev) => [
       ...prev,
       {
         id: `sec-${Date.now()}`,
         topicIds,
         title: buildCombinedSectionTitle(topicIds, sampleTopics),
+        excerpt: buildSectionExcerpt(topicIds, sampleStudyContent),
         generatedAt: new Date().toISOString().split("T")[0],
-        wordCount,
+        reviewEditTotal: 0,
         archived: false,
       },
     ]);
