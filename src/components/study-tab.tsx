@@ -72,8 +72,8 @@ export function StudyTab({
             Select topics to study
           </h3>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Generate a section from Brief, or click a section in the sidebar to
-            load its topics here.
+            Use Generate Section under Topics in Brief, or open a section in the
+            sidebar to load its topics here.
           </p>
         </div>
       </div>

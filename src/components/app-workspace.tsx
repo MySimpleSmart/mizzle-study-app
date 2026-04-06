@@ -13,6 +13,8 @@ interface AppWorkspaceProps {
   studyTopicIds: string[];
   workspaceReady: boolean;
   sections: Section[];
+  /** Active study section title (truncated in Quiz / Flashcard headers). */
+  sectionTitle: string | null;
   onAddStudyTopic: (topicId: string) => void;
 }
 
@@ -26,8 +28,9 @@ function WorkspaceEmpty() {
         Study workspace is empty
       </h2>
       <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-        Select one or more topics in <span className="font-medium text-foreground">Brief</span>, then click{" "}
-        <span className="font-medium text-foreground">Generate Section</span> in Sections. Your notes, quizzes, and study material will appear here after generation.
+        Select topics under <span className="font-medium text-foreground">Topics</span> in{" "}
+        <span className="font-medium text-foreground">Brief</span>, then click{" "}
+        <span className="font-medium text-foreground">Generate Section</span>. Your notes, quizzes, and study material will appear here after generation.
       </p>
     </div>
   );
@@ -38,6 +41,7 @@ export function AppWorkspace({
   studyTopicIds,
   workspaceReady,
   sections,
+  sectionTitle,
   onAddStudyTopic,
 }: AppWorkspaceProps) {
   return (
@@ -88,7 +92,11 @@ export function AppWorkspace({
             />
           </TabsContent>
           <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
-            <QuizTab topics={topics} studyTopicIds={studyTopicIds} />
+            <QuizTab
+              topics={topics}
+              studyTopicIds={studyTopicIds}
+              sectionTitle={sectionTitle}
+            />
           </TabsContent>
           <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
             <NotesTab topics={topics} />

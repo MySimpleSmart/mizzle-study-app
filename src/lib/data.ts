@@ -886,20 +886,47 @@ export const sampleNotes: Note[] = [
   },
 ];
 
-export const aiBrief = {
-  overview:
-    "This study session covers the foundations of machine learning, drawn from a Google crash course video, Stanford CS229 slides, the ISLR textbook, scikit-learn documentation, and your own class notes. The material spans six core topics — from supervised and unsupervised learning paradigms to practical concerns like feature engineering and model evaluation.",
-  keyInsights: [
-    "Supervised learning requires labeled data and is the most common ML paradigm",
-    "Neural networks are the foundation of deep learning and power modern AI",
-    "Model evaluation goes beyond accuracy — consider precision, recall, and F1",
-    "Feature engineering often has more impact on results than algorithm choice",
-    "Decision trees are interpretable but prone to overfitting without ensembles",
-  ],
-  sourceCount: 5,
-  topicCount: 6,
-  estimatedStudyTime: "2–3 hours",
-};
+/** AI-generated brief snapshot (demo: multiple variants for “re-analyse”). */
+export interface AiBriefSnapshot {
+  overview: string;
+  keyInsights: string[];
+  sourceCount: number;
+  topicCount: number;
+  estimatedStudyTime: string;
+}
+
+export const aiBriefVariants: AiBriefSnapshot[] = [
+  {
+    overview:
+      "This study session covers the foundations of machine learning, drawn from a Google crash course video, Stanford CS229 slides, the ISLR textbook, scikit-learn documentation, and your own class notes. The material spans six core topics — from supervised and unsupervised learning paradigms to practical concerns like feature engineering and model evaluation.",
+    keyInsights: [
+      "Supervised learning requires labeled data and is the most common ML paradigm",
+      "Neural networks are the foundation of deep learning and power modern AI",
+      "Model evaluation goes beyond accuracy — consider precision, recall, and F1",
+      "Feature engineering often has more impact on results than algorithm choice",
+      "Decision trees are interpretable but prone to overfitting without ensembles",
+    ],
+    sourceCount: 5,
+    topicCount: 6,
+    estimatedStudyTime: "2–3 hours",
+  },
+  {
+    overview:
+      "Re-analysed overview (demo): the same course is reframed around practical workflows — data → model → evaluation → deployment. Sources are cross-checked for consistency; emphasis shifts slightly toward generalization, data leakage, and reproducible experiments across the six topics.",
+    keyInsights: [
+      "Start from the learning goal: prediction vs structure discovery drives supervised vs unsupervised choices",
+      "Depth (neural nets) trades off interpretability — use baselines before scaling complexity",
+      "Metrics must match the problem: class balance changes whether accuracy is meaningful",
+      "Good features beat fancy algorithms when data is limited",
+      "Ensembles (random forests, boosting) often beat a single decision tree on noisy data",
+    ],
+    sourceCount: 6,
+    topicCount: 6,
+    estimatedStudyTime: "3–4 hours",
+  },
+];
+
+export const aiBrief: AiBriefSnapshot = aiBriefVariants[0];
 
 export interface Flashcard {
   id: string;

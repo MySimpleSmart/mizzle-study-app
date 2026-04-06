@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Section, Source, Topic } from "@/lib/data";
+import type { ReanalyseContext } from "@/components/brief-panel";
+import type { AiBriefSnapshot, Section, Source, Topic } from "@/lib/data";
 import { BriefPanel } from "@/components/brief-panel";
 import { SectionsPanel } from "@/components/sections-panel";
 import { SourcePanel } from "@/components/source-panel";
@@ -17,6 +18,9 @@ import { cn } from "@/lib/utils";
 type SidebarSection = "brief" | "sections" | "source";
 
 interface AppSidebarProps {
+  brief: AiBriefSnapshot;
+  reanalysePending?: boolean;
+  onReanalyse: (context: ReanalyseContext) => void;
   topics: Topic[];
   selectedTopics: string[];
   onToggleTopic: (topicId: string) => void;
@@ -68,6 +72,9 @@ function SidebarSectionHeader({
 }
 
 export function AppSidebar({
+  brief,
+  reanalysePending,
+  onReanalyse,
   topics,
   selectedTopics,
   onToggleTopic,
@@ -106,9 +113,14 @@ export function AppSidebar({
             {openSections.brief && (
               <div className="px-4 pt-5 pb-4">
                 <BriefPanel
+                  brief={brief}
                   topics={topics}
                   selectedTopics={selectedTopics}
                   onToggleTopic={onToggleTopic}
+                  onReanalyse={onReanalyse}
+                  reanalysePending={reanalysePending}
+                  onGenerateSectionClick={onGenerateSectionClick}
+                  generateDisabled={generateDisabled}
                 />
               </div>
             )}
@@ -127,8 +139,6 @@ export function AppSidebar({
                 <SectionsPanel
                   sections={sections}
                   onOpenSectionInWorkspace={onOpenSectionInWorkspace}
-                  onGenerateSectionClick={onGenerateSectionClick}
-                  generateDisabled={generateDisabled}
                   onArchiveSection={onArchiveSection}
                   onRestoreSection={onRestoreSection}
                   onRemoveSection={onRemoveSection}

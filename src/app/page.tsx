@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppWorkspace } from "@/components/app-workspace";
 import { TopHeader } from "@/components/top-header";
 import {
+  aiBriefVariants,
   sampleSources,
   sampleTopics,
   sampleStudyContent,
@@ -28,6 +29,9 @@ function firstActiveTopicIds(sections: Section[]): string[] {
 
 export default function Home() {
   const [briefSelection, setBriefSelection] = useState<string[]>([]);
+  const [briefVariantIndex, setBriefVariantIndex] = useState(0);
+  const [reanalysePending, setReanalysePending] = useState(false);
+  const [headerLastUpdated, setHeaderLastUpdated] = useState("2 hours ago");
   const [studyTopicIds, setStudyTopicIds] = useState<string[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   /** Section currently driving the main workspace; edits (e.g. add topic) sync to this card */
@@ -39,6 +43,37 @@ export default function Home() {
   );
 
   const workspaceReady = activeSections.length > 0;
+
+  const workspaceSectionTitle = useMemo(() => {
+    if (!activeSectionId) return null;
+    const s = sections.find((x) => x.id === activeSectionId && !x.archived);
+    return s?.title ?? null;
+  }, [activeSectionId, sections]);
+
+  const briefSnapshot = useMemo(
+    () =>
+      aiBriefVariants[briefVariantIndex % aiBriefVariants.length] ??
+      aiBriefVariants[0],
+    [briefVariantIndex]
+  );
+
+  const handleReanalyseBrief = useCallback(
+    (_context: { reasonId: string; detail?: string }) => {
+      void _context;
+      setReanalysePending(true);
+      window.setTimeout(() => {
+        setBriefVariantIndex((i) => (i + 1) % aiBriefVariants.length);
+        setReanalysePending(false);
+        setHeaderLastUpdated(
+          new Date().toLocaleString(undefined, {
+            dateStyle: "medium",
+            timeStyle: "short",
+          })
+        );
+      }, 1500);
+    },
+    []
+  );
 
   const toggleTopic = (topicId: string) => {
     setBriefSelection((prev) =>
@@ -182,12 +217,15 @@ export default function Home() {
             </div>
 
             <span className="text-xs text-muted-foreground">
-              Last updated 2 hours ago
+              Last updated {headerLastUpdated}
             </span>
           </div>
 
           <div className="flex flex-1 overflow-hidden">
             <AppSidebar
+              brief={briefSnapshot}
+              reanalysePending={reanalysePending}
+              onReanalyse={handleReanalyseBrief}
               topics={sampleTopics}
               selectedTopics={briefSelection}
               onToggleTopic={toggleTopic}
@@ -209,6 +247,7 @@ export default function Home() {
                 studyTopicIds={studyTopicIds}
                 workspaceReady={workspaceReady}
                 sections={sections}
+                sectionTitle={workspaceSectionTitle}
                 onAddStudyTopic={addStudyTopic}
               />
             </main>

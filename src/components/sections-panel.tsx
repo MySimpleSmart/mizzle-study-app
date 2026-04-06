@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
-  Plus,
   RotateCcw,
   Trash2,
 } from "lucide-react";
@@ -26,8 +25,6 @@ import { cn } from "@/lib/utils";
 interface SectionsPanelProps {
   sections: Section[];
   onOpenSectionInWorkspace: (sectionId: string, topicIds: string[]) => void;
-  onGenerateSectionClick: () => void;
-  generateDisabled: boolean;
   onArchiveSection: (sectionId: string) => void;
   onRestoreSection: (sectionId: string) => void;
   onRemoveSection: (sectionId: string) => void;
@@ -36,8 +33,6 @@ interface SectionsPanelProps {
 export function SectionsPanel({
   sections,
   onOpenSectionInWorkspace,
-  onGenerateSectionClick,
-  generateDisabled,
   onArchiveSection,
   onRestoreSection,
   onRemoveSection,
@@ -75,17 +70,6 @@ export function SectionsPanel({
 
   return (
     <div className="space-y-3">
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full gap-1.5"
-        onClick={onGenerateSectionClick}
-        disabled={generateDisabled}
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Generate Section
-      </Button>
-
       {activeSections.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-center">
           <BookOpen className="mx-auto mb-2 h-8 w-8 text-muted-foreground/40" />
@@ -93,7 +77,7 @@ export function SectionsPanel({
             No active sections
           </p>
           <p className="text-xs text-muted-foreground/60">
-            Pick topics in Brief, then Generate Section
+            Use Generate Section under Topics in Brief to add one
           </p>
         </div>
       ) : (

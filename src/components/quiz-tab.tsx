@@ -18,6 +18,13 @@ import type {
 } from "@/lib/data";
 import { sampleFlashcards, sampleQuizQuestions } from "@/lib/data";
 import {
+  getSavedFlashcards,
+  removeSavedFlashcard,
+  savedFlashcardDeckProgress,
+  upsertSavedFlashcard,
+  type SavedFlashcardSnapshot,
+} from "@/lib/saved-flashcards";
+import {
   getSavedQuizzes,
   removeSavedQuiz,
   savedQuizProgress,
@@ -48,6 +55,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeftRight,
   Bookmark,
+  BookOpen,
   BrainCircuit,
   CheckCircle2,
   ChevronLeft,
@@ -60,12 +68,35 @@ import {
   Plus,
   RotateCcw,
   Save,
-  Settings2,
+  SquareStack,
   TextCursorInput,
   Trash2,
   XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, excerptHeading } from "@/lib/utils";
+
+function WorkspacePanelTitle({
+  sectionTitle,
+  fallback,
+}: {
+  sectionTitle: string | null;
+  fallback: string;
+}) {
+  const raw =
+    sectionTitle != null && sectionTitle.trim() !== ""
+      ? sectionTitle.trim()
+      : fallback;
+  /** Shorter line + explicit "..."; `title` shows full text on hover. */
+  const display = excerptHeading(raw, 32);
+  return (
+    <h3
+      className="min-w-0 max-w-[min(100%,18rem)] cursor-default text-base font-semibold sm:max-w-[20rem]"
+      title={raw}
+    >
+      {display}
+    </h3>
+  );
+}
 
 const DRAG_FILL_GAP = "______";
 
@@ -230,6 +261,8 @@ type QuizMode = "quiz" | "flashcard";
 interface QuizTabProps {
   topics: Topic[];
   studyTopicIds: string[];
+  /** Current workspace section title (drives Quiz / Flashcard headers). */
+  sectionTitle: string | null;
 }
 
 const formSelectTriggerClass =
@@ -279,7 +312,7 @@ function ModeSelector({
 
   return (
     <div
-      className="inline-flex gap-0.5 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 gap-0.5 rounded-md border bg-muted/40 p-0.5"
       role="tablist"
       aria-label="Quiz mode"
     >
@@ -472,13 +505,81 @@ function FlashcardSettingsPanel({
 
 function FlashcardViewer({
   cards,
-  onBack,
+  resumeSnapshot,
+  sectionTitle,
+  onBackToBrowse,
+  onFlashcardSaved,
 }: {
   cards: Flashcard[];
-  onBack: () => void;
+  resumeSnapshot: SavedFlashcardSnapshot | null;
+  sectionTitle: string | null;
+  onBackToBrowse: () => void;
+  onFlashcardSaved?: (snapshot: SavedFlashcardSnapshot) => void;
 }) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [flipped, setFlipped] = useState(false);
+  const [currentIndex, setCurrentIndex] = useState(() =>
+    resumeSnapshot && cards.length > 0
+      ? Math.min(
+          resumeSnapshot.currentIndex,
+          Math.max(0, cards.length - 1)
+        )
+      : 0
+  );
+  const [flipped, setFlipped] = useState(() => resumeSnapshot?.flipped ?? false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+
+  const lastSavedKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (resumeSnapshot) {
+      lastSavedKeyRef.current = `${resumeSnapshot.currentIndex}|${resumeSnapshot.flipped}`;
+    } else {
+      lastSavedKeyRef.current = null;
+    }
+  }, [resumeSnapshot?.id]);
+
+  useEffect(() => {
+    setCurrentIndex((i) =>
+      cards.length === 0 ? 0 : Math.min(i, cards.length - 1)
+    );
+  }, [cards.length]);
+
+  const stateKey = `${currentIndex}|${flipped}`;
+  const hasUnsavedChanges =
+    cards.length > 0 &&
+    (lastSavedKeyRef.current === null
+      ? stateKey !== "0|false"
+      : stateKey !== lastSavedKeyRef.current);
+
+  const requestBack = () => {
+    if (hasUnsavedChanges) {
+      setLeaveOpen(true);
+    } else {
+      onBackToBrowse();
+    }
+  };
+
+  const confirmLeave = () => {
+    setLeaveOpen(false);
+    onBackToBrowse();
+  };
+
+  const handleSave = useCallback(() => {
+    if (cards.length === 0) return;
+    const topicIds = [...new Set(cards.map((c) => c.topicId))];
+    const snapshot = upsertSavedFlashcard({
+      ...(resumeSnapshot?.id ? { id: resumeSnapshot.id } : {}),
+      savedAt: new Date().toISOString(),
+      topicIds,
+      flashcardIds: cards.map((c) => c.id),
+      currentIndex,
+      flipped,
+    });
+    lastSavedKeyRef.current = `${currentIndex}|${flipped}`;
+    setSaveStatus("saved");
+    onFlashcardSaved?.(snapshot);
+    window.setTimeout(() => setSaveStatus("idle"), 2200);
+  }, [cards, currentIndex, flipped, onFlashcardSaved, resumeSnapshot?.id]);
 
   if (cards.length === 0) {
     return (
@@ -490,8 +591,8 @@ function FlashcardViewer({
           None of your selected topics have sample cards yet. Try other topics
           or generate again.
         </p>
-        <Button variant="outline" size="sm" onClick={onBack}>
-          Back to settings
+        <Button variant="outline" size="sm" onClick={onBackToBrowse}>
+          Back to saved flashcards
         </Button>
       </div>
     );
@@ -515,131 +616,144 @@ function FlashcardViewer({
   };
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 p-6">
-      <div className="flex w-full max-w-lg items-center justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">
-            Card {currentIndex + 1} of {cards.length}
-          </p>
-          <div className="mt-1.5 flex gap-1">
-            {cards.map((_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "h-1 rounded-full transition-colors",
-                  i === currentIndex ? "w-6 bg-primary" : "w-2 bg-border"
-                )}
+    <>
+      <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Leave without saving?</DialogTitle>
+            <DialogDescription>
+              You have unsaved progress on this deck (card position and flip
+              state). Leave anyway, or save first with{" "}
+              <span className="font-medium text-foreground">Save set</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLeaveOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmLeave}>
+              Leave anyway
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <ScrollArea className="h-full">
+        <div className="flex flex-col gap-6 p-6">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1 pr-2">
+              <WorkspacePanelTitle
+                sectionTitle={sectionTitle}
+                fallback="Flashcards"
               />
-            ))}
+            </div>
+            <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:ml-auto sm:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={requestBack}
+              >
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+                Back
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleSave}
+              >
+                <Save className="h-3.5 w-3.5" aria-hidden />
+                {saveStatus === "saved" ? "Saved" : "Save set"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mx-auto flex w-full max-w-lg flex-col items-center gap-6">
+            <div className="flex w-full flex-col items-center gap-1.5">
+              <p className="text-center text-sm text-muted-foreground">
+                Card {currentIndex + 1} of {cards.length}
+              </p>
+              <div className="flex justify-center gap-1">
+                {cards.map((_, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "h-1 rounded-full transition-colors",
+                      i === currentIndex ? "w-6 bg-primary" : "w-2 bg-border"
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setFlipped(!flipped)}
+              className="group w-full max-w-lg"
+              style={{ perspective: "1000px" }}
+            >
+              <div
+                className={cn(
+                  "relative min-h-[260px] w-full transition-transform duration-500",
+                  flipped && "[transform:rotateY(180deg)]"
+                )}
+                style={{ transformStyle: "preserve-3d" }}
+              >
+                <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border bg-white p-8 shadow-sm [backface-visibility:hidden]">
+                  <p className="mb-4 text-center text-lg font-medium leading-relaxed">
+                    {card.front}
+                  </p>
+                  <span className="text-xs text-muted-foreground">
+                    Tap to reveal answer
+                  </span>
+                </div>
+
+                <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-primary/20 bg-primary/5 p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                  <p className="text-center text-sm leading-relaxed whitespace-pre-line text-foreground/80">
+                    {card.back}
+                  </p>
+                </div>
+              </div>
+            </button>
+
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goPrev}
+                disabled={currentIndex === 0}
+              >
+                Previous
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={restart}
+                className="gap-1"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </Button>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goNext}
+                disabled={currentIndex === cards.length - 1}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={onBack}
-        >
-          <Settings2 className="h-3.5 w-3.5" />
-          New Set
-        </Button>
-      </div>
-
-      <button
-        onClick={() => setFlipped(!flipped)}
-        className="group w-full max-w-lg"
-        style={{ perspective: "1000px" }}
-      >
-        <div
-          className={cn(
-            "relative min-h-[260px] w-full transition-transform duration-500",
-            flipped && "[transform:rotateY(180deg)]"
-          )}
-          style={{ transformStyle: "preserve-3d" }}
-        >
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border bg-white p-8 shadow-sm [backface-visibility:hidden]">
-            <p className="mb-4 text-center text-lg font-medium leading-relaxed">
-              {card.front}
-            </p>
-            <span className="text-xs text-muted-foreground">
-              Tap to reveal answer
-            </span>
-          </div>
-
-          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-primary/20 bg-primary/5 p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-            <p className="text-center text-sm leading-relaxed text-foreground/80 whitespace-pre-line">
-              {card.back}
-            </p>
-          </div>
-        </div>
-      </button>
-
-      <div className="flex items-center gap-3">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={goPrev}
-          disabled={currentIndex === 0}
-        >
-          Previous
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={restart}
-          className="gap-1"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={goNext}
-          disabled={currentIndex === cards.length - 1}
-        >
-          Next
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Flashcard View (settings → viewer)
-// ---------------------------------------------------------------------------
-
-function FlashcardView({
-  studyTopics,
-}: {
-  studyTopics: Topic[];
-}) {
-  const [generated, setGenerated] = useState(false);
-  const [activeCards, setActiveCards] = useState<Flashcard[]>([]);
-
-  const handleGenerate = (cardCount: number, topicIds: string[]) => {
-    const filtered = sampleFlashcards.filter((c) =>
-      topicIds.includes(c.topicId)
-    );
-    const cards = filtered.slice(0, cardCount);
-    setActiveCards(cards);
-    setGenerated(true);
-  };
-
-  if (!generated) {
-    return (
-      <FlashcardSettingsPanel
-        studyTopics={studyTopics}
-        onGenerate={handleGenerate}
-      />
-    );
-  }
-
-  return (
-    <FlashcardViewer
-      cards={activeCards}
-      onBack={() => setGenerated(false)}
-    />
+      </ScrollArea>
+    </>
   );
 }
 
@@ -792,6 +906,15 @@ function formatSavedQuizDate(iso: string): string {
 function topicNamesFromIds(ids: string[], topicList: Topic[]): string {
   const map = Object.fromEntries(topicList.map((t) => [t.id, t.name]));
   return ids.map((id) => map[id] ?? id).join(", ");
+}
+
+function resolveFlashcardsFromSnapshot(
+  entry: SavedFlashcardSnapshot
+): Flashcard[] {
+  const map = Object.fromEntries(sampleFlashcards.map((c) => [c.id, c]));
+  return entry.flashcardIds
+    .map((id) => map[id])
+    .filter((c): c is Flashcard => c != null);
 }
 
 function SavedQuizCardsList({
@@ -976,6 +1099,187 @@ function QuizBrowseView({
           </Button>
         </div>
         <SavedQuizCardsList
+          allTopics={allTopics}
+          refreshKey={savedListVersion}
+          onContinue={onContinue}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SavedFlashcardCardsList({
+  allTopics,
+  refreshKey,
+  onContinue,
+}: {
+  allTopics: Topic[];
+  refreshKey: number;
+  onContinue: (entry: SavedFlashcardSnapshot) => void;
+}) {
+  const [items, setItems] = useState<SavedFlashcardSnapshot[]>([]);
+  const [pendingRemove, setPendingRemove] =
+    useState<SavedFlashcardSnapshot | null>(null);
+
+  const removeConfirmDescription = useMemo(() => {
+    if (!pendingRemove) return "";
+    const t = topicNamesFromIds(pendingRemove.topicIds, allTopics);
+    return t
+      ? `This will permanently delete the saved set for ${t}. You cannot undo this action.`
+      : "This will permanently delete this saved flashcard set. You cannot undo this action.";
+  }, [pendingRemove, allTopics]);
+
+  useEffect(() => {
+    setItems(getSavedFlashcards());
+  }, [refreshKey]);
+
+  const handleRemove = (id: string) => {
+    removeSavedFlashcard(id);
+    setItems(getSavedFlashcards());
+  };
+
+  const confirmRemove = () => {
+    if (!pendingRemove) return;
+    handleRemove(pendingRemove.id);
+    setPendingRemove(null);
+  };
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
+        <p className="text-sm text-muted-foreground">
+          No saved flashcard sets yet. Generate a deck, then use{" "}
+          <span className="font-medium text-foreground">Save set</span> during
+          review to store it here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove saved flashcards?</DialogTitle>
+            <DialogDescription>{removeConfirmDescription}</DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingRemove(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={confirmRemove}
+            >
+              Remove
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {items.map((entry) => {
+          const { position, total } = savedFlashcardDeckProgress(entry);
+          const names = topicNamesFromIds(entry.topicIds, allTopics);
+          const progressPercent =
+            total > 0 ? Math.round((position / total) * 100) : 0;
+
+          return (
+            <div
+              key={entry.id}
+              className="flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm"
+            >
+              <p className="text-sm font-medium leading-snug text-foreground">
+                {names || "Flashcard set"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {entry.flashcardIds.length} card
+                {entry.flashcardIds.length !== 1 ? "s" : ""} in deck
+              </p>
+              <div
+                className="mt-3"
+                title={`Card ${position} of ${total}`}
+              >
+                <Progress
+                  value={progressPercent}
+                  className="w-full gap-0 [&_[data-slot=progress-track]]:h-2"
+                />
+              </div>
+              <div className="mt-4 flex flex-nowrap items-center gap-2 border-t border-border/50 pt-3">
+                <p className="min-w-0 flex-1 truncate text-[11px] font-medium text-muted-foreground">
+                  {formatSavedQuizDate(entry.savedAt)}
+                </p>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                    aria-label="Remove saved flashcard set"
+                    onClick={() => setPendingRemove(entry)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onContinue(entry)}
+                  >
+                    Continue
+                  </Button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+function FlashcardBrowseView({
+  allTopics,
+  savedListVersion,
+  onNewSet,
+  onContinue,
+}: {
+  allTopics: Topic[];
+  savedListVersion: number;
+  onNewSet: () => void;
+  onContinue: (entry: SavedFlashcardSnapshot) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <div className="w-full flex-1 px-6 py-6">
+        <div className="mb-6 flex w-full items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Bookmark
+              className="h-5 w-5 shrink-0 text-primary"
+              aria-hidden
+            />
+            <h3 className="text-lg font-semibold tracking-tight text-foreground">
+              Saved flashcards
+            </h3>
+          </div>
+          <Button
+            type="button"
+            className="shrink-0 gap-1.5"
+            onClick={onNewSet}
+          >
+            <Plus className="h-4 w-4" aria-hidden />
+            New set
+          </Button>
+        </div>
+        <SavedFlashcardCardsList
           allTopics={allTopics}
           refreshKey={savedListVersion}
           onContinue={onContinue}
@@ -1752,14 +2056,18 @@ function QuestionCard({
 
 function QuizView({
   settings,
+  sectionTitle,
   onBack,
+  onRestartQuiz,
   onProgressScopeChange,
   onQuestionRevealed,
   onQuizSaved,
   resumeSnapshot,
 }: {
   settings: QuizSettings;
+  sectionTitle: string | null;
   onBack: () => void;
+  onRestartQuiz: () => void;
   onProgressScopeChange?: (payload: {
     questionIdsKey: string;
     totalQuestions: number;
@@ -1863,6 +2171,7 @@ function QuizView({
 
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [leaveQuizConfirmOpen, setLeaveQuizConfirmOpen] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
 
   const questionIdsKey = visibleQuestions.map((q) => q.id).join("|");
 
@@ -1973,6 +2282,11 @@ function QuizView({
     onBack();
   }, [onBack]);
 
+  const confirmRestartQuiz = useCallback(() => {
+    setRestartConfirmOpen(false);
+    onRestartQuiz();
+  }, [onRestartQuiz]);
+
   if (questions.length === 0 && emptyReason) {
     const body =
       emptyReason === "resume-invalid"
@@ -2036,11 +2350,40 @@ function QuizView({
         </DialogContent>
       </Dialog>
 
+      <Dialog open={restartConfirmOpen} onOpenChange={setRestartConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Restart quiz?</DialogTitle>
+            <DialogDescription>
+              This clears all answers and progress on this run and starts over.
+              {resumeSnapshot
+                ? " Your saved quiz file is unchanged until you save again."
+                : " You may get a different mix of questions from the bank."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRestartConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={confirmRestartQuiz}>
+              Restart
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ScrollArea className="h-full">
       <div className="space-y-4 p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold">Practice Quiz</h3>
+            <WorkspacePanelTitle
+              sectionTitle={sectionTitle}
+              fallback="Practice Quiz"
+            />
             <p className="text-sm text-muted-foreground">
               {shown} of {requested} question{requested === 1 ? "" : "s"} in this
               run · {exactMatchCount} exact filter match
@@ -2061,6 +2404,18 @@ function QuizView({
               Back
             </Button>
             <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={questions.length === 0}
+              title="Clear answers and start this run over"
+              onClick={() => setRestartConfirmOpen(true)}
+            >
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden />
+              Restart
+            </Button>
+            <Button
               variant="default"
               size="sm"
               className="gap-1.5"
@@ -2069,15 +2424,6 @@ function QuizView({
             >
               <Save className="h-3.5 w-3.5" />
               {saveStatus === "saved" ? "Saved" : "Save quiz"}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={requestLeaveQuiz}
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              New Quiz
             </Button>
           </div>
         </div>
@@ -2141,20 +2487,43 @@ function StudyScopeEmpty() {
   );
 }
 
-export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
+export function QuizTab({
+  topics,
+  studyTopicIds,
+  sectionTitle,
+}: QuizTabProps) {
   const [mode, setMode] = useState<QuizMode>("quiz");
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizSession, setQuizSession] = useState<QuizSettings | null>(null);
   const [savedListVersion, setSavedListVersion] = useState(0);
+  const [savedFlashcardListVersion, setSavedFlashcardListVersion] =
+    useState(0);
   /** When false, show saved-quiz cards + New quiz; when true, show Start quiz form. */
   const [showQuizStartForm, setShowQuizStartForm] = useState(false);
   const [resumeSnapshot, setResumeSnapshot] = useState<SavedQuizSnapshot | null>(
     null
   );
   const [quizRunKey, setQuizRunKey] = useState(0);
+  const quizAnsweredIdsRef = useRef<Set<string>>(new Set());
+  const quizLastQuestionIdsKeyRef = useRef<string | null>(null);
+  const [quizProgressAnswered, setQuizProgressAnswered] = useState(0);
+  const [quizProgressTotal, setQuizProgressTotal] = useState(0);
+
   const bumpSavedList = useCallback(() => {
     setSavedListVersion((v) => v + 1);
   }, []);
+
+  const bumpSavedFlashcards = useCallback(() => {
+    setSavedFlashcardListVersion((v) => v + 1);
+  }, []);
+
+  const [flashcardStarted, setFlashcardStarted] = useState(false);
+  const [showFlashcardSettingsForm, setShowFlashcardSettingsForm] =
+    useState(false);
+  const [flashcardResume, setFlashcardResume] =
+    useState<SavedFlashcardSnapshot | null>(null);
+  const [flashcardRunKey, setFlashcardRunKey] = useState(0);
+  const [activeFlashcards, setActiveFlashcards] = useState<Flashcard[]>([]);
 
   const handleContinueSavedQuiz = useCallback((entry: SavedQuizSnapshot) => {
     setResumeSnapshot(entry);
@@ -2164,10 +2533,14 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
     setQuizRunKey((k) => k + 1);
   }, []);
 
-  const quizAnsweredIdsRef = useRef<Set<string>>(new Set());
-  const quizLastQuestionIdsKeyRef = useRef<string | null>(null);
-  const [quizProgressAnswered, setQuizProgressAnswered] = useState(0);
-  const [quizProgressTotal, setQuizProgressTotal] = useState(0);
+  const handleRestartQuiz = useCallback(() => {
+    quizAnsweredIdsRef.current = new Set();
+    setQuizProgressAnswered(0);
+    setResumeSnapshot((prev) =>
+      prev ? { ...prev, answers: {} } : null
+    );
+    setQuizRunKey((k) => k + 1);
+  }, []);
 
   const handleQuizProgressScopeChange = useCallback(
     (payload: { questionIdsKey: string; totalQuestions: number }) => {
@@ -2210,6 +2583,20 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
     [studyTopicIds]
   );
 
+  const savedQuizStats = useMemo(() => {
+    const list = getSavedQuizzes();
+    const sessions = list.length;
+    const cards = list.reduce((sum, q) => sum + q.questionIds.length, 0);
+    return { sessions, cards };
+  }, [savedListVersion]);
+
+  const savedFlashcardStats = useMemo(() => {
+    const list = getSavedFlashcards();
+    const sessions = list.length;
+    const cards = list.reduce((sum, q) => sum + q.flashcardIds.length, 0);
+    return { sessions, cards };
+  }, [savedFlashcardListVersion]);
+
   const hasStudyScope = studyTopics.length > 0;
 
   const quizProgressPercent =
@@ -2217,19 +2604,90 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
       ? Math.round((quizProgressAnswered / quizProgressTotal) * 100)
       : 0;
 
+  const { sessions: savedQuizSessionCount, cards: savedQuizCardCount } =
+    savedQuizStats;
+  const { sessions: savedFcSessionCount, cards: savedFcCardCount } =
+    savedFlashcardStats;
+
+  const scopeAriaLabel = (() => {
+    const studyPart =
+      mode === "quiz"
+        ? hasStudyScope
+          ? `${quizAvailable} question${quizAvailable === 1 ? "" : "s"} for current study`
+          : "No study topics"
+        : hasStudyScope
+          ? `${flashcardAvailable} flashcard${flashcardAvailable === 1 ? "" : "s"} for current study`
+          : "No study topics";
+    if (mode === "quiz") {
+      return `${studyPart}, ${savedQuizSessionCount} saved quiz${savedQuizSessionCount === 1 ? "" : "zes"}, ${savedQuizCardCount} quiz question${savedQuizCardCount === 1 ? "" : "s"}`;
+    }
+    return `${studyPart}, ${savedFcSessionCount} saved flashcard set${savedFcSessionCount === 1 ? "" : "s"}, ${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}`;
+  })();
+
+  const iconCls = "h-3.5 w-3.5 shrink-0 opacity-80";
+  const sepCls = "select-none text-muted-foreground/45";
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-col border-b bg-background">
-        <div className="flex items-center justify-end gap-2 px-6 py-2">
-          <p className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground sm:text-xs">
-            {mode === "quiz"
-              ? hasStudyScope
-                ? `${quizAvailable} question${quizAvailable === 1 ? "" : "s"} for current study`
-                : "No study topics"
-              : hasStudyScope
-                ? `${flashcardAvailable} flashcard${flashcardAvailable === 1 ? "" : "s"} for current study`
-                : "No study topics"}
-          </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-6 py-2">
+          <div
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left text-[11px] leading-snug text-muted-foreground sm:text-xs"
+            role="status"
+            aria-label={scopeAriaLabel}
+          >
+            {mode === "quiz" ? (
+              hasStudyScope ? (
+                <span className="inline-flex items-center gap-1">
+                  <ListChecks className={iconCls} aria-hidden />
+                  <span>
+                    {quizAvailable} question
+                    {quizAvailable === 1 ? "" : "s"} for current study
+                  </span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1">
+                  <BookOpen className={iconCls} aria-hidden />
+                  <span>No study topics</span>
+                </span>
+              )
+            ) : hasStudyScope ? (
+              <span className="inline-flex items-center gap-1">
+                <Layers className={iconCls} aria-hidden />
+                <span>
+                  {flashcardAvailable} flashcard
+                  {flashcardAvailable === 1 ? "" : "s"} for current study
+                </span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1">
+                <BookOpen className={iconCls} aria-hidden />
+                <span>No study topics</span>
+              </span>
+            )}
+            <span className={sepCls} aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Bookmark className={iconCls} aria-hidden />
+              <span>
+                {mode === "quiz"
+                  ? `${savedQuizSessionCount} saved quiz${savedQuizSessionCount === 1 ? "" : "zes"}`
+                  : `${savedFcSessionCount} saved set${savedFcSessionCount === 1 ? "" : "s"}`}
+              </span>
+            </span>
+            <span className={sepCls} aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <SquareStack className={iconCls} aria-hidden />
+              <span>
+                {mode === "quiz"
+                  ? `${savedQuizCardCount} card${savedQuizCardCount === 1 ? "" : "s"}`
+                  : `${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}`}
+              </span>
+            </span>
+          </div>
           <ModeSelector
             mode={mode}
             onModeChange={(m) => {
@@ -2238,6 +2696,10 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
               setQuizSession(null);
               setShowQuizStartForm(false);
               setResumeSnapshot(null);
+              setFlashcardStarted(false);
+              setShowFlashcardSettingsForm(false);
+              setFlashcardResume(null);
+              setActiveFlashcards([]);
             }}
           />
         </div>
@@ -2264,11 +2726,64 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
         {!hasStudyScope ? (
           <StudyScopeEmpty />
         ) : mode === "flashcard" ? (
-          <FlashcardView studyTopics={studyTopics} />
+          !flashcardStarted ? (
+            !showFlashcardSettingsForm ? (
+              <FlashcardBrowseView
+                allTopics={topics}
+                savedListVersion={savedFlashcardListVersion}
+                onNewSet={() => setShowFlashcardSettingsForm(true)}
+                onContinue={(entry) => {
+                  const resolved = resolveFlashcardsFromSnapshot(entry);
+                  if (resolved.length === 0) {
+                    removeSavedFlashcard(entry.id);
+                    bumpSavedFlashcards();
+                    return;
+                  }
+                  setActiveFlashcards(resolved);
+                  setFlashcardResume(entry);
+                  setFlashcardStarted(true);
+                  setFlashcardRunKey((k) => k + 1);
+                }}
+              />
+            ) : (
+              <FlashcardSettingsPanel
+                studyTopics={studyTopics}
+                onGenerate={(count, topicIds) => {
+                  const filtered = sampleFlashcards.filter((c) =>
+                    topicIds.includes(c.topicId)
+                  );
+                  const nextCards = filtered.slice(0, count);
+                  setActiveFlashcards(nextCards);
+                  setFlashcardResume(null);
+                  setFlashcardStarted(true);
+                  setShowFlashcardSettingsForm(false);
+                  setFlashcardRunKey((k) => k + 1);
+                }}
+              />
+            )
+          ) : (
+            <FlashcardViewer
+              key={flashcardRunKey}
+              cards={activeFlashcards}
+              resumeSnapshot={flashcardResume}
+              sectionTitle={sectionTitle}
+              onBackToBrowse={() => {
+                setFlashcardStarted(false);
+                setFlashcardResume(null);
+                setActiveFlashcards([]);
+                setShowFlashcardSettingsForm(false);
+              }}
+              onFlashcardSaved={(snapshot) => {
+                setFlashcardResume(snapshot);
+                bumpSavedFlashcards();
+              }}
+            />
+          )
         ) : quizStarted && quizSession ? (
           <QuizView
             key={quizRunKey}
             settings={quizSession}
+            sectionTitle={sectionTitle}
             resumeSnapshot={resumeSnapshot}
             onBack={() => {
               setResumeSnapshot(null);
@@ -2276,6 +2791,7 @@ export function QuizTab({ topics, studyTopicIds }: QuizTabProps) {
               setQuizSession(null);
               setShowQuizStartForm(false);
             }}
+            onRestartQuiz={handleRestartQuiz}
             onProgressScopeChange={handleQuizProgressScopeChange}
             onQuestionRevealed={handleQuizQuestionRevealed}
             onQuizSaved={(snapshot) => {
