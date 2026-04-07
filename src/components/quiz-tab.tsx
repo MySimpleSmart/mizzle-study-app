@@ -48,6 +48,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -74,6 +75,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn, excerptHeading } from "@/lib/utils";
+import {
+  pickQuestionsForQuizRun,
+  questionMatchesDifficulty,
+  shuffleArray,
+} from "@/lib/quiz-pick";
+import { scoreVisibleQuizRun } from "@/lib/quiz-score";
 
 function WorkspacePanelTitle({
   sectionTitle,
@@ -99,15 +106,6 @@ function WorkspacePanelTitle({
 }
 
 const DRAG_FILL_GAP = "______";
-
-function shuffleArray<T>(items: T[]): T[] {
-  const arr = [...items];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
 
 function DragFillInteraction({
   question,
@@ -263,6 +261,8 @@ interface QuizTabProps {
   studyTopicIds: string[];
   /** Current workspace section title (drives Quiz / Flashcard headers). */
   sectionTitle: string | null;
+  /** Increments when a quiz is saved from elsewhere (e.g. section mini quiz). */
+  savedQuizRemoteRefreshToken?: number;
 }
 
 const formSelectTriggerClass =
@@ -879,85 +879,6 @@ function formatSelectionSummary(formats: QuestionType[]): string {
     return "Mix all";
   }
   return formats.map((f) => questionTypeLabel[f] ?? f).join(", ");
-}
-
-function questionMatchesFormats(
-  questionType: QuizQuestion["type"],
-  formats: QuestionType[] | undefined
-): boolean {
-  const f = formats ?? ["mixed"];
-  if (f.includes("mixed") || f.length === 0) return true;
-  const concrete = f.filter(
-    (t): t is Exclude<QuestionType, "mixed"> => t !== "mixed"
-  );
-  return concrete.includes(questionType);
-}
-
-function questionMatchesDifficulty(
-  q: QuizQuestion,
-  difficulty: QuizSettings["difficulty"]
-): boolean {
-  return (q.difficulty ?? "medium") === difficulty;
-}
-
-/**
- * Picks up to `requested` questions from the topic pool. If strict
- * (difficulty + format) matches are fewer than requested, progressively
- * relaxes filters so the run can still reach the requested count when the bank
- * allows — then shuffles so the set is not always the same slice order.
- */
-function pickQuestionsForQuizRun(
-  topicPool: QuizQuestion[],
-  settings: QuizSettings,
-  requested: number
-): {
-  questions: QuizQuestion[];
-  strictMatchCount: number;
-  relaxedPoolSize: number;
-  usedRelaxation: boolean;
-} {
-  const formats = settings.questionFormats ?? ["mixed"];
-  const difficulty = settings.difficulty;
-
-  const strict = topicPool.filter(
-    (q) =>
-      questionMatchesDifficulty(q, difficulty) &&
-      questionMatchesFormats(q.type, formats)
-  );
-  const byDifficulty = topicPool.filter((q) =>
-    questionMatchesDifficulty(q, difficulty)
-  );
-  const byFormat = topicPool.filter((q) =>
-    questionMatchesFormats(q.type, formats)
-  );
-
-  let source: QuizQuestion[];
-  let usedRelaxation: boolean;
-
-  if (strict.length >= requested) {
-    source = strict;
-    usedRelaxation = false;
-  } else if (byDifficulty.length >= requested) {
-    source = byDifficulty;
-    usedRelaxation = true;
-  } else if (byFormat.length >= requested) {
-    source = byFormat;
-    usedRelaxation = true;
-  } else {
-    source = topicPool;
-    usedRelaxation =
-      topicPool.length > strict.length || strict.length < requested;
-  }
-
-  const shuffled = shuffleArray(source);
-  const questions = shuffled.slice(0, Math.min(requested, shuffled.length));
-
-  return {
-    questions,
-    strictMatchCount: strict.length,
-    relaxedPoolSize: source.length,
-    usedRelaxation,
-  };
 }
 
 function formatSavedQuizDate(iso: string): string {
@@ -1727,13 +1648,15 @@ const quizCorrectCheckboxClass =
 const quizWrongCheckboxClass =
   "border-red-500 data-checked:border-red-600 data-checked:bg-red-600 data-checked:text-white dark:data-checked:bg-red-600";
 
-function QuestionCard({
+export function QuestionCard({
   question,
   index,
   onFirstReveal,
   onAnswerSnapshot,
   resumeAnswer,
   onRemoveQuestion,
+  embedded,
+  embeddedActionsWhenWrong,
 }: {
   question: QuizQuestion;
   index: number;
@@ -1747,6 +1670,13 @@ function QuestionCard({
     revealed: boolean;
   } | null;
   onRemoveQuestion?: () => void;
+  /** Compact layout for sidebar / section mini quiz (no remove / AI toolbar). */
+  embedded?: boolean;
+  /**
+   * With `embedded`, hide Ask AI / Edit / Remove unless the answer is wrong.
+   * Main quiz (non-embedded) always shows the bar after reveal.
+   */
+  embeddedActionsWhenWrong?: boolean;
 }) {
   const [selectedAnswer, setSelectedAnswer] = useState<string | string[]>(
     () => resumeAnswer?.selectedAnswer ?? ""
@@ -1845,8 +1775,18 @@ function QuestionCard({
     "short-answer": "Short Answer",
   };
 
+  const showPostResultToolbar =
+    showResult &&
+    (!embedded || Boolean(embeddedActionsWhenWrong && !isCorrect));
+
   return (
-    <div ref={questionCardRef} className="rounded-xl border bg-white p-5">
+    <div
+      ref={questionCardRef}
+      className={cn(
+        "rounded-xl border bg-white",
+        embedded ? "rounded-lg p-3" : "p-5"
+      )}
+    >
       <div className="mb-3 flex items-center gap-2">
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
           {index + 1}
@@ -1866,7 +1806,9 @@ function QuestionCard({
       </div>
 
       {question.type !== "drag-fill" && (
-        <p className="mb-4 text-sm font-medium">{question.question}</p>
+        <p className={cn("text-sm font-medium", embedded ? "mb-2" : "mb-4")}>
+          {question.question}
+        </p>
       )}
 
       {question.type === "single-choice" && question.options && (
@@ -2018,48 +1960,50 @@ function QuestionCard({
               {question.explanation}
             </p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-foreground"
-              title="Ask AI"
-              aria-label="Ask AI"
-              onClick={() => {}}
-            >
-              <Sparkles className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-foreground"
-              title="Edit question"
-              aria-label="Edit question"
-              onClick={() => {}}
-            >
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button
-              ref={removeTriggerRef}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground hover:text-destructive"
-              title="Remove question"
-              aria-label="Remove question"
-              aria-expanded={removeConfirmOpen}
-              aria-haspopup="dialog"
-              onClick={openRemoveConfirm}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
+          {showPostResultToolbar && (
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                title="Ask AI"
+                aria-label="Ask AI"
+                onClick={() => {}}
+              >
+                <Sparkles className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                title="Edit question"
+                aria-label="Edit question"
+                onClick={() => {}}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                ref={removeTriggerRef}
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-destructive"
+                title="Remove question"
+                aria-label="Remove question"
+                aria-expanded={removeConfirmOpen}
+                aria-haspopup="dialog"
+                onClick={openRemoveConfirm}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
-      {removeConfirmOpen &&
+      {removeConfirmOpen && showPostResultToolbar &&
         typeof document !== "undefined" &&
         createPortal(
           <>
@@ -2133,6 +2077,7 @@ function QuizView({
   onProgressScopeChange,
   onQuestionRevealed,
   onQuizSaved,
+  onRunScoreChange,
   resumeSnapshot,
 }: {
   settings: QuizSettings;
@@ -2147,6 +2092,7 @@ function QuizView({
   }) => void;
   onQuestionRevealed?: (questionId: string) => void;
   onQuizSaved?: (snapshot: SavedQuizSnapshot) => void;
+  onRunScoreChange?: (score: { correct: number; incorrect: number }) => void;
   resumeSnapshot?: SavedQuizSnapshot | null;
 }) {
   const quizBuild = useMemo(() => {
@@ -2253,6 +2199,13 @@ function QuizView({
 
   const questionIdsKey = visibleQuestions.map((q) => q.id).join("|");
 
+  const pushRunScoreToParent = useCallback(() => {
+    if (!onRunScoreChange) return;
+    onRunScoreChange(
+      scoreVisibleQuizRun(visibleQuestions, answersSnapshotRef.current)
+    );
+  }, [visibleQuestions, onRunScoreChange]);
+
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -2273,6 +2226,10 @@ function QuizView({
       answersSnapshotRef.current = {};
     }
   }, [resumeSnapshot?.id, questionIdsKey, resumeSnapshot]);
+
+  useEffect(() => {
+    pushRunScoreToParent();
+  }, [questionIdsKey, resumeSnapshot?.id, pushRunScoreToParent]);
 
   useEffect(() => {
     if (!resumeSnapshot?.id || !onQuestionRevealed) return;
@@ -2306,8 +2263,9 @@ function QuizView({
         (Array.isArray(payload.selectedAnswer) &&
           payload.selectedAnswer.length > 0);
       if (hasContent) setHasUnsavedChanges(true);
+      pushRunScoreToParent();
     },
-    [resumeSnapshot]
+    [resumeSnapshot, pushRunScoreToParent]
   );
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
@@ -2600,11 +2558,13 @@ export function QuizTab({
   topics,
   studyTopicIds,
   sectionTitle,
+  savedQuizRemoteRefreshToken,
 }: QuizTabProps) {
   const [mode, setMode] = useState<QuizMode>("quiz");
   const [quizStarted, setQuizStarted] = useState(false);
   const [quizSession, setQuizSession] = useState<QuizSettings | null>(null);
   const [savedListVersion, setSavedListVersion] = useState(0);
+  const lastRemoteQuizBump = useRef(0);
   const [savedFlashcardListVersion, setSavedFlashcardListVersion] =
     useState(0);
   /** When false, show saved-quiz cards + New quiz; when true, show Start quiz form. */
@@ -2617,10 +2577,24 @@ export function QuizTab({
   const quizLastQuestionIdsKeyRef = useRef<string | null>(null);
   const [quizProgressAnswered, setQuizProgressAnswered] = useState(0);
   const [quizProgressTotal, setQuizProgressTotal] = useState(0);
+  const [quizCompleteModalOpen, setQuizCompleteModalOpen] = useState(false);
+  const quizCompleteModalRunRef = useRef<number | null>(null);
+  const [quizRunScore, setQuizRunScore] = useState({
+    correct: 0,
+    incorrect: 0,
+  });
 
   const bumpSavedList = useCallback(() => {
     setSavedListVersion((v) => v + 1);
   }, []);
+
+  useEffect(() => {
+    const b = savedQuizRemoteRefreshToken ?? 0;
+    if (b > lastRemoteQuizBump.current) {
+      lastRemoteQuizBump.current = b;
+      setSavedListVersion((v) => v + 1);
+    }
+  }, [savedQuizRemoteRefreshToken]);
 
   const bumpSavedFlashcards = useCallback(() => {
     setSavedFlashcardListVersion((v) => v + 1);
@@ -2724,8 +2698,47 @@ export function QuizTab({
       quizAnsweredIdsRef.current = new Set();
       setQuizProgressAnswered(0);
       setQuizProgressTotal(0);
+      setQuizCompleteModalOpen(false);
     }
   }, [quizSession]);
+
+  useEffect(() => {
+    quizCompleteModalRunRef.current = null;
+    setQuizRunScore({ correct: 0, incorrect: 0 });
+  }, [quizRunKey]);
+
+  useEffect(() => {
+    if (!quizStarted || !quizSession) return;
+    if (quizProgressTotal <= 0) return;
+    if (quizProgressAnswered !== quizProgressTotal) return;
+    if (quizCompleteModalRunRef.current === quizRunKey) return;
+    quizCompleteModalRunRef.current = quizRunKey;
+    setQuizCompleteModalOpen(true);
+  }, [
+    quizStarted,
+    quizSession,
+    quizProgressAnswered,
+    quizProgressTotal,
+    quizRunKey,
+  ]);
+
+  const handleQuizCompleteRestartSame = useCallback(() => {
+    setQuizCompleteModalOpen(false);
+    handleRestartQuizSameQuestions();
+  }, [handleRestartQuizSameQuestions]);
+
+  const handleQuizCompleteRegenerate = useCallback(() => {
+    setQuizCompleteModalOpen(false);
+    handleRegenerateQuizSameRules();
+  }, [handleRegenerateQuizSameRules]);
+
+  const handleQuizCompleteBackToBrowse = useCallback(() => {
+    setQuizCompleteModalOpen(false);
+    setResumeSnapshot(null);
+    setQuizStarted(false);
+    setQuizSession(null);
+    setShowQuizStartForm(false);
+  }, []);
 
   const studyTopics = useMemo(
     () => studyTopicsInOrder(topics, studyTopicIds),
@@ -2762,6 +2775,10 @@ export function QuizTab({
       ? Math.round((quizProgressAnswered / quizProgressTotal) * 100)
       : 0;
 
+  const quizRunComplete =
+    quizProgressTotal > 0 &&
+    quizProgressAnswered === quizProgressTotal;
+
   const { sessions: savedQuizSessionCount, cards: savedQuizCardCount } =
     savedQuizStats;
   const { sessions: savedFcSessionCount, cards: savedFcCardCount } =
@@ -2787,6 +2804,152 @@ export function QuizTab({
 
   return (
     <div className="flex h-full flex-col">
+      <Dialog
+        open={quizCompleteModalOpen}
+        onOpenChange={(open) => {
+          if (!open) setQuizCompleteModalOpen(false);
+        }}
+      >
+        <DialogContent
+          className="min-w-0 max-w-[calc(100%-2rem)] overflow-hidden sm:max-w-md"
+          showCloseButton
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-left">
+              <CheckCircle2
+                className="h-5 w-5 shrink-0 text-green-600"
+                aria-hidden
+              />
+              Quiz completed
+            </DialogTitle>
+            <DialogDescription className="text-center text-sm text-muted-foreground">
+              All {quizProgressTotal} question
+              {quizProgressTotal === 1 ? "" : "s"} checked in this run.
+            </DialogDescription>
+          </DialogHeader>
+          {quizSession && (
+            <div className="mt-3 space-y-2" role="group" aria-label="Run summary">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-col items-center justify-center rounded-lg border border-green-200/80 bg-green-50/60 px-2 py-2.5 text-center dark:border-green-900/50 dark:bg-green-950/30">
+                  <CheckCircle2
+                    className="mb-1 h-3.5 w-3.5 text-green-600"
+                    aria-hidden
+                  />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-green-800/80 dark:text-green-400/90">
+                    Correct
+                  </p>
+                  <p className="text-xl font-semibold tabular-nums text-green-900 dark:text-green-100">
+                    {quizRunScore.correct}
+                  </p>
+                </div>
+                <div className="flex flex-col items-center justify-center rounded-lg border border-red-200/80 bg-red-50/60 px-2 py-2.5 text-center dark:border-red-900/50 dark:bg-red-950/30">
+                  <XCircle
+                    className="mb-1 h-3.5 w-3.5 text-destructive"
+                    aria-hidden
+                  />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-destructive/90">
+                    Missed
+                  </p>
+                  <p className="text-xl font-semibold tabular-nums text-destructive">
+                    {quizRunScore.incorrect}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col items-center justify-center rounded-lg border border-border/70 bg-muted/20 px-2 py-2 text-center">
+                  <BrainCircuit
+                    className="mb-0.5 h-3 w-3 text-primary"
+                    aria-hidden
+                  />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Level
+                  </p>
+                  <p className="text-[11px] font-semibold leading-tight text-foreground">
+                    {difficultyLabel[quizSession.difficulty] ??
+                      quizSession.difficulty}
+                  </p>
+                </div>
+                <div className="flex flex-col items-center justify-center rounded-lg border border-border/70 bg-muted/20 px-2 py-2 text-center">
+                  <Layers className="mb-0.5 h-3 w-3 text-primary" aria-hidden />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Types
+                  </p>
+                  <p className="line-clamp-2 text-[11px] font-semibold leading-tight text-foreground">
+                    {formatSelectionSummary(
+                      quizSession.questionFormats ?? ["mixed"]
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-col items-center justify-center rounded-lg border border-border/70 bg-muted/20 px-2 py-2 text-center">
+                  <BookOpen
+                    className="mb-0.5 h-3 w-3 text-primary"
+                    aria-hidden
+                  />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Topics
+                  </p>
+                  <p className="text-[11px] font-semibold tabular-nums text-foreground">
+                    {quizSession.selectedTopics.length}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className="mt-4 flex min-w-0 w-full flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleQuizCompleteRestartSame}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Restart same questions
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                Same set, answers cleared.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleQuizCompleteRegenerate}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Re-generate (same rules)
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                New draw; same settings and topics.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleQuizCompleteBackToBrowse}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Back to quizzes
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                Saved list and new quiz.
+              </span>
+            </Button>
+          </div>
+          <DialogFooter className="mt-3 border-t border-border/60 pt-3 sm:justify-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setQuizCompleteModalOpen(false)}
+            >
+              Continue reviewing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex shrink-0 flex-col border-b bg-background">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-6 py-2">
           <div
@@ -2866,11 +3029,24 @@ export function QuizTab({
           quizSession &&
           quizProgressTotal > 0 && (
             <div className="sticky top-0 z-20 border-t border-border/60 bg-background/95 px-6 py-2.5 shadow-[0_1px_0_0_hsl(var(--border)/0.4)] backdrop-blur-sm supports-[backdrop-filter]:bg-background/90">
-              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">Progress</span>
-                <span className="tabular-nums">
-                  {quizProgressAnswered} of {quizProgressTotal} checked
-                </span>
+                <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                  {quizRunComplete && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs font-medium text-primary"
+                      onClick={() => setQuizCompleteModalOpen(true)}
+                    >
+                      Next steps
+                    </Button>
+                  )}
+                  <span className="tabular-nums">
+                    {quizProgressAnswered} of {quizProgressTotal} checked
+                  </span>
+                </div>
               </div>
               <Progress
                 value={quizProgressPercent}
@@ -2970,6 +3146,7 @@ export function QuizTab({
               setResumeSnapshot(snapshot);
               bumpSavedList();
             }}
+            onRunScoreChange={setQuizRunScore}
           />
         ) : !showQuizStartForm ? (
           <QuizBrowseView

@@ -14,6 +14,7 @@ import {
   sectionTopicSetKey,
   type Section,
 } from "@/lib/data";
+import { upsertSavedQuiz } from "@/lib/saved-quizzes";
 
 function firstActiveTopicIds(sections: Section[]): string[] {
   const active = sections
@@ -36,6 +37,9 @@ export default function Home() {
   const [sections, setSections] = useState<Section[]>([]);
   /** Section currently driving the main workspace; edits (e.g. add topic) sync to this card */
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [workspaceTab, setWorkspaceTab] = useState("study");
+  const [savedQuizRemoteRefreshToken, setSavedQuizRemoteRefreshToken] =
+    useState(0);
 
   const activeSections = useMemo(
     () => sections.filter((s) => !s.archived),
@@ -48,6 +52,13 @@ export default function Home() {
     if (!activeSectionId) return null;
     const s = sections.find((x) => x.id === activeSectionId && !x.archived);
     return s?.title ?? null;
+  }, [activeSectionId, sections]);
+
+  const activeSection = useMemo(() => {
+    if (!activeSectionId) return null;
+    return (
+      sections.find((s) => s.id === activeSectionId && !s.archived) ?? null
+    );
   }, [activeSectionId, sections]);
 
   const briefSnapshot = useMemo(
@@ -94,6 +105,15 @@ export default function Home() {
     setStudyTopicIds(topicIds);
     setActiveSectionId(sectionId);
   };
+
+  const handleSaveSectionQuiz = useCallback(
+    (data: Parameters<typeof upsertSavedQuiz>[0]) => {
+      upsertSavedQuiz(data);
+      setSavedQuizRemoteRefreshToken((n) => n + 1);
+      setWorkspaceTab("quiz");
+    },
+    []
+  );
 
   const addStudyTopic = (topicId: string) => {
     setStudyTopicIds((prev) =>
@@ -248,7 +268,12 @@ export default function Home() {
                 workspaceReady={workspaceReady}
                 sections={sections}
                 sectionTitle={workspaceSectionTitle}
+                activeSection={activeSection}
                 onAddStudyTopic={addStudyTopic}
+                onSaveSectionQuiz={handleSaveSectionQuiz}
+                workspaceTab={workspaceTab}
+                onWorkspaceTabChange={setWorkspaceTab}
+                savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
               />
             </main>
           </div>

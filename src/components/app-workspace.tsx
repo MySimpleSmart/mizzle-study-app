@@ -6,6 +6,7 @@ import { QuizTab } from "@/components/quiz-tab";
 import { NotesTab } from "@/components/notes-tab";
 import { ResourcesTab } from "@/components/resources-tab";
 import type { Section, Topic } from "@/lib/data";
+import type { SavedQuizSnapshot } from "@/lib/saved-quizzes";
 import { BookOpen, BrainCircuit, FolderOpen, PenLine, Sparkles } from "lucide-react";
 
 interface AppWorkspaceProps {
@@ -15,7 +16,15 @@ interface AppWorkspaceProps {
   sections: Section[];
   /** Active study section title (truncated in Quiz / Flashcard headers). */
   sectionTitle: string | null;
+  /** Section driving the workspace Study tab (for section quiz at bottom). */
+  activeSection: Section | null;
   onAddStudyTopic: (topicId: string) => void;
+  onSaveSectionQuiz: (
+    data: Omit<SavedQuizSnapshot, "id"> & { id?: string }
+  ) => void;
+  workspaceTab: string;
+  onWorkspaceTabChange: (value: string) => void;
+  savedQuizRemoteRefreshToken: number;
 }
 
 function WorkspaceEmpty() {
@@ -42,10 +51,19 @@ export function AppWorkspace({
   workspaceReady,
   sections,
   sectionTitle,
+  activeSection,
   onAddStudyTopic,
+  onSaveSectionQuiz,
+  workspaceTab,
+  onWorkspaceTabChange,
+  savedQuizRemoteRefreshToken,
 }: AppWorkspaceProps) {
   return (
-    <Tabs defaultValue="study" className="flex h-full flex-col">
+    <Tabs
+      value={workspaceTab}
+      onValueChange={onWorkspaceTabChange}
+      className="flex h-full flex-col"
+    >
       <div className="shrink-0 border-b bg-white px-6">
         <TabsList variant="line" className="h-11">
           <TabsTrigger
@@ -88,7 +106,9 @@ export function AppWorkspace({
               topics={topics}
               studyTopicIds={studyTopicIds}
               sections={sections}
+              activeSection={activeSection}
               onAddStudyTopic={onAddStudyTopic}
+              onSaveSectionQuiz={onSaveSectionQuiz}
             />
           </TabsContent>
           <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
@@ -96,6 +116,7 @@ export function AppWorkspace({
               topics={topics}
               studyTopicIds={studyTopicIds}
               sectionTitle={sectionTitle}
+              savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
             />
           </TabsContent>
           <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
