@@ -39,7 +39,9 @@ function WorkspaceEmpty() {
       <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
         Select topics under <span className="font-medium text-foreground">Topics</span> in{" "}
         <span className="font-medium text-foreground">Brief</span>, then click{" "}
-        <span className="font-medium text-foreground">Generate Section</span>. Your notes, quizzes, and study material will appear here after generation.
+        <span className="font-medium text-foreground">Generate Section</span> to unlock Study and Quiz here.{" "}
+        <span className="font-medium text-foreground">Notes</span> and{" "}
+        <span className="font-medium text-foreground">Resources</span> stay available in the tabs above anytime.
       </p>
     </div>
   );
@@ -97,36 +99,38 @@ export function AppWorkspace({
         </TabsList>
       </div>
 
-      {!workspaceReady ? (
-        <WorkspaceEmpty />
-      ) : (
-        <>
-          <TabsContent value="study" className="mt-0 flex-1 overflow-hidden">
-            <StudyTab
-              topics={topics}
-              studyTopicIds={studyTopicIds}
-              sections={sections}
-              activeSection={activeSection}
-              onAddStudyTopic={onAddStudyTopic}
-              onSaveSectionQuiz={onSaveSectionQuiz}
-            />
-          </TabsContent>
-          <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
-            <QuizTab
-              topics={topics}
-              studyTopicIds={studyTopicIds}
-              sectionTitle={sectionTitle}
-              savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
-            />
-          </TabsContent>
-          <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
-            <NotesTab topics={topics} />
-          </TabsContent>
-          <TabsContent value="resources" className="mt-0 flex-1 overflow-hidden">
-            <ResourcesTab />
-          </TabsContent>
-        </>
-      )}
+      <TabsContent value="study" className="mt-0 flex-1 overflow-hidden">
+        {!workspaceReady ? (
+          <WorkspaceEmpty />
+        ) : (
+          <StudyTab
+            topics={topics}
+            studyTopicIds={studyTopicIds}
+            sections={sections}
+            activeSection={activeSection}
+            onAddStudyTopic={onAddStudyTopic}
+            onSaveSectionQuiz={onSaveSectionQuiz}
+          />
+        )}
+      </TabsContent>
+      <TabsContent value="quiz" className="mt-0 flex-1 overflow-hidden">
+        {!workspaceReady ? (
+          <WorkspaceEmpty />
+        ) : (
+          <QuizTab
+            topics={topics}
+            studyTopicIds={studyTopicIds}
+            sectionTitle={sectionTitle}
+            savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
+          />
+        )}
+      </TabsContent>
+      <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
+        <NotesTab topics={topics} studyTopicIds={studyTopicIds} />
+      </TabsContent>
+      <TabsContent value="resources" className="mt-0 flex-1 overflow-hidden">
+        <ResourcesTab />
+      </TabsContent>
     </Tabs>
   );
 }

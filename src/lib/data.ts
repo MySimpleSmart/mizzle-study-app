@@ -122,7 +122,28 @@ export interface Note {
   id: string;
   content: string;
   createdAt: string;
+  /** Preferred: one or many topics. */
+  topicIds?: string[];
+  /** @deprecated Loaded from older saves; merged into `topicIds` by `normalizeNote`. */
   topicId?: string;
+}
+
+/** Resolved topic id list (supports legacy `topicId`). */
+export function normalizeNote(note: Note): Note {
+  const raw =
+    note.topicIds && note.topicIds.length > 0
+      ? note.topicIds
+      : note.topicId
+        ? [note.topicId]
+        : [];
+  const ids = [...new Set(raw.filter(Boolean))];
+  const { topicId, topicIds, ...rest } = note;
+  if (ids.length === 0) return { ...rest };
+  return { ...rest, topicIds: ids };
+}
+
+export function noteTopicIds(note: Note): string[] {
+  return normalizeNote(note).topicIds ?? [];
 }
 
 export interface QuizSettings {
@@ -868,21 +889,28 @@ export const sampleNotes: Note[] = [
     content:
       "Key takeaway: Supervised learning needs labeled data. The quality and quantity of labels directly impacts model performance. Need to review the bias-variance tradeoff section more carefully.",
     createdAt: "2025-04-03T10:30:00",
-    topicId: "t1",
+    topicIds: ["t1"],
   },
   {
     id: "n2",
     content:
       "Random Forest = many decision trees combined. Each tree trains on a random subset of features and data. This reduces overfitting compared to a single tree. Remember: bagging vs boosting distinction.",
     createdAt: "2025-04-03T11:15:00",
-    topicId: "t4",
+    topicIds: ["t4"],
   },
   {
     id: "n3",
     content:
       "For the exam: make sure to know the difference between precision and recall. Precision = TP / (TP + FP). Recall = TP / (TP + FN). F1 balances both.",
     createdAt: "2025-04-03T14:00:00",
-    topicId: "t5",
+    topicIds: ["t5"],
+  },
+  {
+    id: "n4",
+    content:
+      "Cross-topic review: neural nets often use supervised objectives (labels) while tree ensembles handle heterogeneous features well—compare when to use each on exam problems.",
+    createdAt: "2025-04-03T16:20:00",
+    topicIds: ["t1", "t3", "t4"],
   },
 ];
 

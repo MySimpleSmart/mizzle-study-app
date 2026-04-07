@@ -107,6 +107,16 @@
   }
 }
 
+/* TipTap placeholder (empty paragraph decoration uses data-placeholder) */
+.note-rich-editor .ProseMirror p.is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--muted-foreground);
+  opacity: 0.8;
+}
+
 /* KaTeX: avoid nested scrollbars on block math (no overflow traps on formula boxes) */
 .study-markdown .katex-display,
 .study-markdown .katex-display > .katex,

@@ -304,7 +304,7 @@ function ModeSelector({
 }) {
   const tab = (active: boolean) =>
     cn(
-      "inline-flex items-center gap-1 rounded-[5px] px-2 py-0.5 text-xs font-medium transition-colors",
+      "inline-flex items-center justify-center gap-1 rounded-[5px] px-2.5 py-1 text-xs font-medium leading-none transition-colors",
       active
         ? "bg-white text-foreground shadow-sm"
         : "text-muted-foreground hover:text-foreground"
@@ -312,7 +312,7 @@ function ModeSelector({
 
   return (
     <div
-      className="inline-flex shrink-0 gap-0.5 rounded-md border bg-muted/40 p-0.5"
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-md border bg-muted/40 p-0.5"
       role="tablist"
       aria-label="Quiz mode"
     >
@@ -323,7 +323,7 @@ function ModeSelector({
         onClick={() => onModeChange("quiz")}
         className={tab(mode === "quiz")}
       >
-        <BrainCircuit className="h-3.5 w-3.5 shrink-0 opacity-90" />
+        <BrainCircuit className="block size-3.5 shrink-0 opacity-90" />
         Quiz
       </button>
       <button
@@ -333,7 +333,7 @@ function ModeSelector({
         onClick={() => onModeChange("flashcard")}
         className={tab(mode === "flashcard")}
       >
-        <Layers className="h-3.5 w-3.5 shrink-0 opacity-90" />
+        <Layers className="block size-3.5 shrink-0 opacity-90" />
         Flashcard
       </button>
     </div>
@@ -1003,7 +1003,7 @@ function SavedQuizCardsList({
         return (
           <div
             key={entry.id}
-            className="flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm"
+            className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm transition-colors hover:border-primary/25 hover:shadow-md"
           >
             <p className="text-sm font-medium leading-snug text-foreground">
               {names}
@@ -1032,7 +1032,7 @@ function SavedQuizCardsList({
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                  className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                   aria-label="Remove saved quiz"
                   onClick={() => setPendingRemove(entry)}
                 >
@@ -1188,7 +1188,7 @@ function SavedFlashcardCardsList({
           return (
             <div
               key={entry.id}
-              className="flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm"
+              className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm transition-colors hover:border-primary/25 hover:shadow-md"
             >
               <p className="text-sm font-medium leading-snug text-foreground">
                 {names || "Flashcard set"}
@@ -1213,7 +1213,7 @@ function SavedFlashcardCardsList({
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
                     aria-label="Remove saved flashcard set"
                     onClick={() => setPendingRemove(entry)}
                   >
@@ -2800,7 +2800,8 @@ export function QuizTab({
   })();
 
   const iconCls = "h-3.5 w-3.5 shrink-0 opacity-80";
-  const sepCls = "select-none text-muted-foreground/45";
+  const sepCls =
+    "inline-flex h-4 shrink-0 select-none items-center text-muted-foreground/45";
 
   return (
     <div className="flex h-full flex-col">
@@ -2951,9 +2952,9 @@ export function QuizTab({
       </Dialog>
 
       <div className="flex shrink-0 flex-col border-b bg-background">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-6 py-2">
+        <div className="flex min-h-11 flex-wrap content-center items-center justify-between gap-x-3 gap-y-1.5 px-6 py-2">
           <div
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left text-[11px] leading-snug text-muted-foreground sm:text-xs"
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 text-left text-[11px] leading-tight text-muted-foreground sm:text-xs"
             role="status"
             aria-label={scopeAriaLabel}
           >

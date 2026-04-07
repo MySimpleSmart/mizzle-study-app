@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppWorkspace } from "@/components/app-workspace";
+import { ClientOnly } from "@/components/client-only";
 import { TopHeader } from "@/components/top-header";
 import {
   aiBriefVariants,
@@ -28,6 +29,8 @@ function firstActiveTopicIds(sections: Section[]): string[] {
   return active.length > 0 ? active[0].topicIds : [];
 }
 
+const WORKSPACE_TABS = new Set(["study", "quiz", "notes", "resources"]);
+
 export default function Home() {
   const [briefSelection, setBriefSelection] = useState<string[]>([]);
   const [briefVariantIndex, setBriefVariantIndex] = useState(0);
@@ -40,6 +43,13 @@ export default function Home() {
   const [workspaceTab, setWorkspaceTab] = useState("study");
   const [savedQuizRemoteRefreshToken, setSavedQuizRemoteRefreshToken] =
     useState(0);
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab && WORKSPACE_TABS.has(tab)) {
+      setWorkspaceTab(tab);
+    }
+  }, []);
 
   const activeSections = useMemo(
     () => sections.filter((s) => !s.archived),
@@ -241,42 +251,55 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="flex flex-1 overflow-hidden">
-            <AppSidebar
-              brief={briefSnapshot}
-              reanalysePending={reanalysePending}
-              onReanalyse={handleReanalyseBrief}
-              topics={sampleTopics}
-              selectedTopics={briefSelection}
-              onToggleTopic={toggleTopic}
-              sections={sections}
-              activeSectionCount={activeSections.length}
-              sources={sampleSources}
-              onSelectTopic={selectTopic}
-              onOpenSectionInWorkspace={openSectionInWorkspace}
-              onGenerateSectionClick={handleGenerateSectionClick}
-              generateDisabled={!canGenerateFromSelection}
-              onArchiveSection={archiveSection}
-              onRestoreSection={restoreSection}
-              onRemoveSection={removeSection}
-            />
-
-            <main className="flex-1 overflow-hidden bg-background">
-              <AppWorkspace
+          <ClientOnly
+            fallback={
+              <div
+                className="flex flex-1 overflow-hidden"
+                aria-busy="true"
+                aria-label="Loading workspace"
+              >
+                <aside className="flex h-full w-80 shrink-0 animate-pulse flex-col border-r bg-muted/35" />
+                <main className="flex-1 animate-pulse bg-muted/25" />
+              </div>
+            }
+          >
+            <div className="flex flex-1 overflow-hidden">
+              <AppSidebar
+                brief={briefSnapshot}
+                reanalysePending={reanalysePending}
+                onReanalyse={handleReanalyseBrief}
                 topics={sampleTopics}
-                studyTopicIds={studyTopicIds}
-                workspaceReady={workspaceReady}
+                selectedTopics={briefSelection}
+                onToggleTopic={toggleTopic}
                 sections={sections}
-                sectionTitle={workspaceSectionTitle}
-                activeSection={activeSection}
-                onAddStudyTopic={addStudyTopic}
-                onSaveSectionQuiz={handleSaveSectionQuiz}
-                workspaceTab={workspaceTab}
-                onWorkspaceTabChange={setWorkspaceTab}
-                savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
+                activeSectionCount={activeSections.length}
+                sources={sampleSources}
+                onSelectTopic={selectTopic}
+                onOpenSectionInWorkspace={openSectionInWorkspace}
+                onGenerateSectionClick={handleGenerateSectionClick}
+                generateDisabled={!canGenerateFromSelection}
+                onArchiveSection={archiveSection}
+                onRestoreSection={restoreSection}
+                onRemoveSection={removeSection}
               />
-            </main>
-          </div>
+
+              <main className="flex-1 overflow-hidden bg-background">
+                <AppWorkspace
+                  topics={sampleTopics}
+                  studyTopicIds={studyTopicIds}
+                  workspaceReady={workspaceReady}
+                  sections={sections}
+                  sectionTitle={workspaceSectionTitle}
+                  activeSection={activeSection}
+                  onAddStudyTopic={addStudyTopic}
+                  onSaveSectionQuiz={handleSaveSectionQuiz}
+                  workspaceTab={workspaceTab}
+                  onWorkspaceTabChange={setWorkspaceTab}
+                  savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
+                />
+              </main>
+            </div>
+          </ClientOnly>
         </div>
       </div>
     </div>

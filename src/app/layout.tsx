@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Ubuntu, Ubuntu_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const ubuntu = Ubuntu({
