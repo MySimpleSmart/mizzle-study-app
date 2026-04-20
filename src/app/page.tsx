@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Pencil, Tag } from "lucide-react";
+import { FolderOpen, Pencil, Tag } from "lucide-react";
 import {
   aiBriefVariants,
   sampleSources,
@@ -41,7 +41,7 @@ function firstActiveTopicIds(sections: Section[]): string[] {
   return active.length > 0 ? active[0].topicIds : [];
 }
 
-const WORKSPACE_TABS = new Set(["study", "quiz", "notes", "resources"]);
+const WORKSPACE_TABS = new Set(["study", "quiz", "notes", "slides", "resources"]);
 
 export default function Home() {
   const searchParams = useSearchParams();
@@ -324,7 +324,8 @@ export default function Home() {
             </div>
 
             <div className="flex items-center gap-1.5">
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                <FolderOpen className="h-3 w-3" />
                 {studyCategory}
               </span>
               {studyTags.slice(0, 2).map((tag) => (

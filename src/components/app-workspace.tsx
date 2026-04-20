@@ -7,7 +7,14 @@ import { NotesTab } from "@/components/notes-tab";
 import { ResourcesTab } from "@/components/resources-tab";
 import type { Section, Topic } from "@/lib/data";
 import type { SavedQuizSnapshot } from "@/lib/saved-quizzes";
-import { BookOpen, BrainCircuit, FolderOpen, PenLine, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  BrainCircuit,
+  FolderOpen,
+  PenLine,
+  Presentation,
+  Sparkles,
+} from "lucide-react";
 
 interface AppWorkspaceProps {
   topics: Topic[];
@@ -41,7 +48,8 @@ function WorkspaceEmpty() {
         Select topics under <span className="font-medium text-foreground">Topics</span> in{" "}
         <span className="font-medium text-foreground">Brief</span>, then click{" "}
         <span className="font-medium text-foreground">Generate Section</span> to unlock Study and Quiz here.{" "}
-        <span className="font-medium text-foreground">Notes</span> and{" "}
+        <span className="font-medium text-foreground">Notes</span>,{" "}
+        <span className="font-medium text-foreground">Slides</span>, and{" "}
         <span className="font-medium text-foreground">Resources</span> stay available in the tabs above anytime.
       </p>
     </div>
@@ -82,7 +90,7 @@ export function AppWorkspace({
             className="gap-1.5 px-4 after:!bg-primary"
           >
             <BrainCircuit className="h-4 w-4" />
-            Quiz
+            Practice
           </TabsTrigger>
           <TabsTrigger
             value="notes"
@@ -90,6 +98,13 @@ export function AppWorkspace({
           >
             <PenLine className="h-4 w-4" />
             Notes
+          </TabsTrigger>
+          <TabsTrigger
+            value="slides"
+            className="gap-1.5 px-4 after:!bg-primary"
+          >
+            <Presentation className="h-4 w-4" />
+            Slides
           </TabsTrigger>
           <TabsTrigger
             value="resources"
@@ -130,6 +145,14 @@ export function AppWorkspace({
       </TabsContent>
       <TabsContent value="notes" className="mt-0 flex-1 overflow-hidden">
         <NotesTab topics={topics} studyTopicIds={studyTopicIds} />
+      </TabsContent>
+      <TabsContent value="slides" className="mt-0 flex-1 overflow-hidden">
+        <div className="flex h-full items-center justify-center px-6">
+          <div className="text-center">
+            <h3 className="text-lg font-semibold text-foreground">Slides</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Coming soon</p>
+          </div>
+        </div>
       </TabsContent>
       <TabsContent value="resources" className="mt-0 flex-1 overflow-hidden">
         <ResourcesTab />

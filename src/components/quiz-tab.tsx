@@ -18,9 +18,11 @@ import type {
 } from "@/lib/data";
 import { sampleFlashcards, sampleQuizQuestions } from "@/lib/data";
 import {
+  archiveSavedFlashcard,
   getSavedFlashcards,
   removeSavedFlashcard,
   savedFlashcardDeckProgress,
+  unarchiveSavedFlashcard,
   upsertSavedFlashcard,
   type SavedFlashcardSnapshot,
 } from "@/lib/saved-flashcards";
@@ -533,11 +535,33 @@ function FlashcardViewer({
       : 0
   );
   const [flipped, setFlipped] = useState(() => resumeSnapshot?.flipped ?? false);
+  const [selfRatings, setSelfRatings] = useState<
+    Record<string, "got_it" | "almost" | "again">
+  >({});
+  const [advanceFeedback, setAdvanceFeedback] = useState<"got_it" | "almost" | null>(
+    null
+  );
+  const [flipLockRemainingMs, setFlipLockRemainingMs] = useState(5000);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
+  const [flashcardCompleteOpen, setFlashcardCompleteOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
   const lastSavedKeyRef = useRef<string | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
+  const flipLockTickRef = useRef<number | null>(null);
+  const wasDeckCompleteRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (advanceTimerRef.current != null) {
+        window.clearTimeout(advanceTimerRef.current);
+      }
+      if (flipLockTickRef.current != null) {
+        window.clearInterval(flipLockTickRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (resumeSnapshot) {
@@ -619,8 +643,48 @@ function FlashcardViewer({
   }
 
   const card = cards[currentIndex];
+  const currentRating = selfRatings[card.id];
+  const canFlip = flipLockRemainingMs <= 0;
+  const canGoNext =
+    currentRating === "got_it" || currentRating === "almost";
+  const gotItCount = cards.filter((c) => selfRatings[c.id] === "got_it").length;
+  const almostCount = cards.filter((c) => selfRatings[c.id] === "almost").length;
+  const completedCount = gotItCount + almostCount;
+  const isDeckComplete = cards.length > 0 && completedCount === cards.length;
+  const completionPercent =
+    cards.length > 0 ? Math.round((completedCount / cards.length) * 100) : 0;
+
+  const startFlipLock = useCallback(() => {
+    if (flipLockTickRef.current != null) {
+      window.clearInterval(flipLockTickRef.current);
+      flipLockTickRef.current = null;
+    }
+    const target = Date.now() + 5000;
+    setFlipLockRemainingMs(5000);
+    flipLockTickRef.current = window.setInterval(() => {
+      const remaining = Math.max(0, target - Date.now());
+      setFlipLockRemainingMs(remaining);
+      if (remaining <= 0 && flipLockTickRef.current != null) {
+        window.clearInterval(flipLockTickRef.current);
+        flipLockTickRef.current = null;
+      }
+    }, 100);
+  }, []);
+
+  useEffect(() => {
+    startFlipLock();
+  }, [currentIndex, startFlipLock]);
+
+  useEffect(() => {
+    const prev = wasDeckCompleteRef.current;
+    wasDeckCompleteRef.current = isDeckComplete;
+    if (isDeckComplete && !prev) {
+      setFlashcardCompleteOpen(true);
+    }
+  }, [isDeckComplete]);
 
   const goNext = () => {
+    setAdvanceFeedback(null);
     setFlipped(false);
     setCurrentIndex((prev) => Math.min(prev + 1, cards.length - 1));
   };
@@ -628,6 +692,51 @@ function FlashcardViewer({
   const goPrev = () => {
     setFlipped(false);
     setCurrentIndex((prev) => Math.max(prev - 1, 0));
+  };
+
+  const rateAndAdvance = (rating: "got_it" | "almost") => {
+    if (advanceTimerRef.current != null) {
+      window.clearTimeout(advanceTimerRef.current);
+    }
+    setSelfRatings((prev) => ({ ...prev, [card.id]: rating }));
+    setAdvanceFeedback(rating);
+    advanceTimerRef.current = window.setTimeout(() => {
+      setAdvanceFeedback(null);
+      advanceTimerRef.current = null;
+    }, 420);
+  };
+
+  const rateAgainAndRetry = () => {
+    if (advanceTimerRef.current != null) {
+      window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
+    setAdvanceFeedback(null);
+    setSelfRatings((prev) => {
+      const { [card.id]: _removed, ...rest } = prev;
+      return rest;
+    });
+    setFlipped(false);
+    startFlipLock();
+  };
+
+  const handleFlashcardCompleteRestart = () => {
+    setFlashcardCompleteOpen(false);
+    setSelfRatings({});
+    setAdvanceFeedback(null);
+    setFlipped(false);
+    setCurrentIndex(0);
+    startFlipLock();
+  };
+
+  const handleFlashcardCompleteRegenerate = () => {
+    setFlashcardCompleteOpen(false);
+    onRegenerateSameRules();
+  };
+
+  const handleFlashcardCompleteBackToBrowse = () => {
+    setFlashcardCompleteOpen(false);
+    onBackToBrowse();
   };
 
   return (
@@ -712,6 +821,98 @@ function FlashcardViewer({
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={flashcardCompleteOpen}
+        onOpenChange={(open) => {
+          if (!open) setFlashcardCompleteOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-left">
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" aria-hidden />
+              Flashcards completed
+            </DialogTitle>
+            <DialogDescription className="text-left text-sm text-muted-foreground">
+              All {cards.length} card{cards.length === 1 ? "" : "s"} reviewed in this run.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-green-200/80 bg-green-50/60 px-3 py-2.5 text-center dark:border-green-900/50 dark:bg-green-950/30">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-green-800/80 dark:text-green-400/90">
+                Got it
+              </p>
+              <p className="text-xl font-semibold tabular-nums text-green-900 dark:text-green-100">
+                {gotItCount}
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-200/80 bg-amber-50/60 px-3 py-2.5 text-center dark:border-amber-900/50 dark:bg-amber-950/30">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-amber-800/90 dark:text-amber-400/90">
+                Almost
+              </p>
+              <p className="text-xl font-semibold tabular-nums text-amber-900 dark:text-amber-100">
+                {almostCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex min-w-0 w-full flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleFlashcardCompleteRestart}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Restart same cards
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                Same deck, self-ratings cleared.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleFlashcardCompleteRegenerate}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Re-generate cards (same rules)
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                New draw with the same topics and card count.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleFlashcardCompleteBackToBrowse}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Back to flashcards
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                Return to saved sets and start options.
+              </span>
+            </Button>
+          </div>
+
+          <DialogFooter className="mt-3 border-t border-border/60 pt-3 sm:justify-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setFlashcardCompleteOpen(false)}
+            >
+              Continue reviewing
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <ScrollArea className="h-full">
         <div className="flex flex-col gap-6 p-6">
           <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -774,9 +975,21 @@ function FlashcardViewer({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setFlipped(!flipped)}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (advanceFeedback) return;
+                if (!canFlip && !flipped) return;
+                setFlipped(!flipped);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                if (advanceFeedback) return;
+                if (!canFlip && !flipped) return;
+                setFlipped((v) => !v);
+              }}
               className="group w-full max-w-lg"
               style={{ perspective: "1000px" }}
             >
@@ -791,18 +1004,90 @@ function FlashcardViewer({
                   <p className="mb-4 text-center text-lg font-medium leading-relaxed">
                     {card.front}
                   </p>
-                  <span className="text-xs text-muted-foreground">
-                    Tap to reveal answer
-                  </span>
+                  {canFlip ? (
+                    <span className="text-xs text-muted-foreground">
+                      Tap to reveal answer
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium text-muted-foreground">
+                      Reveal in {Math.ceil(flipLockRemainingMs / 1000)}s
+                    </span>
+                  )}
                 </div>
 
-                <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border border-primary/20 bg-primary/5 p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                  <p className="text-center text-sm leading-relaxed whitespace-pre-line text-foreground/80">
-                    {card.back}
-                  </p>
+                <div className="absolute inset-0 rounded-2xl border border-primary/20 bg-primary/5 p-8 [backface-visibility:hidden] [transform:rotateY(180deg)]">
+                  <div className="flex h-full items-center justify-center pb-14">
+                    <p className="text-center text-sm leading-relaxed whitespace-pre-line text-foreground/80">
+                      {card.back}
+                    </p>
+                  </div>
+                  {advanceFeedback && (
+                    <p className="absolute inset-x-0 bottom-18 text-center text-xs font-medium text-primary">
+                      {advanceFeedback === "got_it" ? "Got it ✓" : "Almost ✓"}
+                    </p>
+                  )}
+                  <div className="absolute inset-x-0 bottom-6 flex items-center justify-center gap-2">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={currentRating === "got_it" ? "default" : "outline"}
+                      className={cn(
+                        "h-9 w-9 rounded-full",
+                        currentRating === "got_it" &&
+                          "bg-emerald-600 hover:bg-emerald-600/90"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        rateAndAdvance("got_it");
+                      }}
+                      disabled={advanceFeedback !== null}
+                      aria-label="Got it"
+                      title="Got it"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={currentRating === "almost" ? "default" : "outline"}
+                      className={cn(
+                        "h-9 w-9 rounded-full",
+                        currentRating === "almost" &&
+                          "bg-amber-600 hover:bg-amber-600/90"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        rateAndAdvance("almost");
+                      }}
+                      disabled={advanceFeedback !== null}
+                      aria-label="Almost"
+                      title="Almost"
+                    >
+                      <CircleDot className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant={currentRating === "again" ? "default" : "outline"}
+                      className={cn(
+                        "h-9 w-9 rounded-full",
+                        currentRating === "again" &&
+                          "bg-slate-900 text-white hover:bg-slate-800"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        rateAgainAndRetry();
+                      }}
+                      disabled={advanceFeedback !== null}
+                      aria-label="Again"
+                      title="Again"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               </div>
-            </button>
+            </div>
 
             <div className="flex items-center gap-3">
               <Button
@@ -818,11 +1103,12 @@ function FlashcardViewer({
                 variant="outline"
                 size="sm"
                 onClick={goNext}
-                disabled={currentIndex === cards.length - 1}
+                disabled={currentIndex === cards.length - 1 || !canGoNext}
               >
                 Next
               </Button>
             </div>
+
           </div>
         </div>
       </ScrollArea>
@@ -915,12 +1201,20 @@ function SavedQuizCardsList({
   allTopics,
   refreshKey,
   showArchived,
+  highlightedQuizId,
+  onRequestShowArchivedChange,
+  onQuizUnarchived,
+  onHighlightHandled,
   onListMutate,
   onContinue,
 }: {
   allTopics: Topic[];
   refreshKey: number;
   showArchived: boolean;
+  highlightedQuizId: string | null;
+  onRequestShowArchivedChange: (show: boolean) => void;
+  onQuizUnarchived: (id: string) => void;
+  onHighlightHandled: () => void;
   onListMutate: () => void;
   onContinue: (entry: SavedQuizSnapshot) => void;
 }) {
@@ -958,8 +1252,17 @@ function SavedQuizCardsList({
   const handleUnarchive = (id: string) => {
     unarchiveSavedQuiz(id);
     setItems(getSavedQuizzes());
+    onQuizUnarchived(id);
+    onRequestShowArchivedChange(false);
     onListMutate();
   };
+
+  useEffect(() => {
+    if (!highlightedQuizId) return;
+    if (showArchived) return;
+    const id = window.setTimeout(() => onHighlightHandled(), 500);
+    return () => window.clearTimeout(id);
+  }, [highlightedQuizId, onHighlightHandled, showArchived]);
 
   const confirmRemoveSavedQuiz = () => {
     if (!pendingRemove) return;
@@ -1035,13 +1338,18 @@ function SavedQuizCardsList({
         return (
           <div
             key={entry.id}
-            className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
+            className={cn(
+              "group flex flex-col rounded-xl border border-border/80 bg-white p-4 transition-[border-color,box-shadow,background-color] duration-300 ease-out hover:border-primary/25 hover:shadow-md",
+              !showArchived &&
+                highlightedQuizId === entry.id &&
+                "border-primary/45 bg-primary/5 shadow-md"
+            )}
           >
             <span className="mb-2 inline-flex self-start rounded-full bg-primary/8 px-2 py-0.5 text-xs text-primary">
               {entry.questionIds.length} questions in session
             </span>
             <p className="text-sm font-medium leading-snug text-foreground">
-              {names}
+              <span className="line-clamp-2 block min-h-[3rem]">{names}</span>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               {difficultyLabel[entry.settings.difficulty]} ·{" "}
@@ -1115,6 +1423,10 @@ function QuizBrowseView({
   allTopics,
   savedListVersion,
   showArchived,
+  highlightedQuizId,
+  onRequestShowArchivedChange,
+  onQuizUnarchived,
+  onHighlightHandled,
   onSavedListMutate,
   onNewQuiz,
   onContinue,
@@ -1122,6 +1434,10 @@ function QuizBrowseView({
   allTopics: Topic[];
   savedListVersion: number;
   showArchived: boolean;
+  highlightedQuizId: string | null;
+  onRequestShowArchivedChange: (show: boolean) => void;
+  onQuizUnarchived: (id: string) => void;
+  onHighlightHandled: () => void;
   onSavedListMutate: () => void;
   onNewQuiz: () => void;
   onContinue: (entry: SavedQuizSnapshot) => void;
@@ -1136,7 +1452,7 @@ function QuizBrowseView({
               aria-hidden
             />
             <h3 className="text-lg font-semibold tracking-tight text-foreground">
-              Saved quizzes
+              {showArchived ? "Archived quizzes" : "Saved quizzes"}
             </h3>
           </div>
           <Button
@@ -1152,6 +1468,10 @@ function QuizBrowseView({
           allTopics={allTopics}
           refreshKey={savedListVersion}
           showArchived={showArchived}
+          highlightedQuizId={highlightedQuizId}
+          onRequestShowArchivedChange={onRequestShowArchivedChange}
+          onQuizUnarchived={onQuizUnarchived}
+          onHighlightHandled={onHighlightHandled}
           onListMutate={onSavedListMutate}
           onContinue={onContinue}
         />
@@ -1163,11 +1483,17 @@ function QuizBrowseView({
 function SavedFlashcardCardsList({
   allTopics,
   refreshKey,
+  showArchived,
+  onRequestShowArchivedChange,
   onContinue,
+  onListMutate,
 }: {
   allTopics: Topic[];
   refreshKey: number;
+  showArchived: boolean;
+  onRequestShowArchivedChange: (show: boolean) => void;
   onContinue: (entry: SavedFlashcardSnapshot) => void;
+  onListMutate: () => void;
 }) {
   const [items, setItems] = useState<SavedFlashcardSnapshot[]>([]);
   const [pendingRemove, setPendingRemove] =
@@ -1188,6 +1514,20 @@ function SavedFlashcardCardsList({
   const handleRemove = (id: string) => {
     removeSavedFlashcard(id);
     setItems(getSavedFlashcards());
+    onListMutate();
+  };
+
+  const handleArchive = (id: string) => {
+    archiveSavedFlashcard(id);
+    setItems(getSavedFlashcards());
+    onListMutate();
+  };
+
+  const handleUnarchive = (id: string) => {
+    unarchiveSavedFlashcard(id);
+    setItems(getSavedFlashcards());
+    onRequestShowArchivedChange(false);
+    onListMutate();
   };
 
   const confirmRemove = () => {
@@ -1196,13 +1536,23 @@ function SavedFlashcardCardsList({
     setPendingRemove(null);
   };
 
-  if (items.length === 0) {
+  const visibleItems = items.filter((item) => !item.archivedAt);
+  const archivedItems = items.filter((item) => Boolean(item.archivedAt));
+  const listedItems = showArchived ? archivedItems : visibleItems;
+
+  if (listedItems.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
         <p className="text-sm text-muted-foreground">
-          No saved flashcard sets yet. Generate a deck, then use{" "}
-          <span className="font-medium text-foreground">Save set</span> during
-          review to store it here.
+          {showArchived ? (
+            "No archived flashcard sets yet."
+          ) : (
+            <>
+              No saved flashcard sets yet. Generate a deck, then use{" "}
+              <span className="font-medium text-foreground">Save set</span>{" "}
+              during review to store it here.
+            </>
+          )}
         </p>
       </div>
     );
@@ -1241,19 +1591,22 @@ function SavedFlashcardCardsList({
       </Dialog>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {items.map((entry) => {
+        {listedItems.map((entry) => {
           const { position, total } = savedFlashcardDeckProgress(entry);
           const names = topicNamesFromIds(entry.topicIds, allTopics);
           const progressPercent =
             total > 0 ? Math.round((position / total) * 100) : 0;
+          const isComplete = total > 0 && position === total;
 
           return (
             <div
               key={entry.id}
-              className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
+              className="group flex h-full flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
             >
               <p className="text-sm font-medium leading-snug text-foreground">
-                {names || "Flashcard set"}
+                <span className="line-clamp-2 block min-h-[3rem]">
+                  {names || "Flashcard set"}
+                </span>
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {entry.flashcardIds.length} card
@@ -1265,7 +1618,11 @@ function SavedFlashcardCardsList({
               >
                 <Progress
                   value={progressPercent}
-                  className="w-full gap-0 [&_[data-slot=progress-track]]:h-2"
+                  className={cn(
+                    "w-full gap-0 [&_[data-slot=progress-track]]:h-2",
+                    isComplete &&
+                      "[&_[data-slot=progress-indicator]]:bg-emerald-500"
+                  )}
                 />
               </div>
               <div className="mt-4 flex flex-nowrap items-center gap-2 border-t border-border/50 pt-3">
@@ -1273,6 +1630,27 @@ function SavedFlashcardCardsList({
                   {formatSavedQuizDate(entry.savedAt)}
                 </p>
                 <div className="flex shrink-0 items-center gap-2">
+                  {showArchived ? (
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label="Unarchive saved flashcard set"
+                      title="Unarchive saved flashcard set"
+                      onClick={() => handleUnarchive(entry.id)}
+                    >
+                      <ArchiveRestore className="h-4 w-4" />
+                    </button>
+                  ) : isComplete ? (
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label="Archive saved flashcard set"
+                      title="Archive saved flashcard set"
+                      onClick={() => handleArchive(entry.id)}
+                    >
+                      <Archive className="h-4 w-4" />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
@@ -1286,7 +1664,7 @@ function SavedFlashcardCardsList({
                     size="sm"
                     onClick={() => onContinue(entry)}
                   >
-                    Continue
+                    {isComplete ? "Review" : "Continue"}
                   </Button>
                 </div>
               </div>
@@ -1301,11 +1679,17 @@ function SavedFlashcardCardsList({
 function FlashcardBrowseView({
   allTopics,
   savedListVersion,
+  showArchived,
+  onRequestShowArchivedChange,
+  onSavedListMutate,
   onNewSet,
   onContinue,
 }: {
   allTopics: Topic[];
   savedListVersion: number;
+  showArchived: boolean;
+  onRequestShowArchivedChange: (show: boolean) => void;
+  onSavedListMutate: () => void;
   onNewSet: () => void;
   onContinue: (entry: SavedFlashcardSnapshot) => void;
 }) {
@@ -1319,7 +1703,7 @@ function FlashcardBrowseView({
               aria-hidden
             />
             <h3 className="text-lg font-semibold tracking-tight text-foreground">
-              Saved flashcards
+              {showArchived ? "Archived flashcards" : "Saved flashcards"}
             </h3>
           </div>
           <Button
@@ -1334,7 +1718,10 @@ function FlashcardBrowseView({
         <SavedFlashcardCardsList
           allTopics={allTopics}
           refreshKey={savedListVersion}
+          showArchived={showArchived}
+          onRequestShowArchivedChange={onRequestShowArchivedChange}
           onContinue={onContinue}
+          onListMutate={onSavedListMutate}
         />
       </div>
     </div>
@@ -2646,6 +3033,11 @@ export function QuizTab({
     incorrect: 0,
   });
   const [showArchivedSavedQuizzes, setShowArchivedSavedQuizzes] = useState(false);
+  const [showArchivedSavedFlashcards, setShowArchivedSavedFlashcards] =
+    useState(false);
+  const [highlightedSavedQuizId, setHighlightedSavedQuizId] = useState<string | null>(
+    null
+  );
 
   const bumpSavedList = useCallback(() => {
     setSavedListVersion((v) => v + 1);
@@ -2826,10 +3218,12 @@ export function QuizTab({
   }, [savedListVersion]);
 
   const savedFlashcardStats = useMemo(() => {
-    const list = getSavedFlashcards();
-    const sessions = list.length;
-    const cards = list.reduce((sum, q) => sum + q.flashcardIds.length, 0);
-    return { sessions, cards };
+    const all = getSavedFlashcards();
+    const visible = all.filter((q) => !q.archivedAt);
+    const archivedSessions = all.length - visible.length;
+    const sessions = visible.length;
+    const cards = visible.reduce((sum, q) => sum + q.flashcardIds.length, 0);
+    return { sessions, cards, archivedSessions };
   }, [savedFlashcardListVersion]);
 
   const hasStudyScope = studyTopics.length > 0;
@@ -2847,8 +3241,11 @@ export function QuizTab({
     sessions: savedQuizSessionCount,
     archivedSessions: archivedQuizSessionCount,
   } = savedQuizStats;
-  const { sessions: savedFcSessionCount, cards: savedFcCardCount } =
-    savedFlashcardStats;
+  const {
+    sessions: savedFcSessionCount,
+    cards: savedFcCardCount,
+    archivedSessions: archivedFcSessionCount,
+  } = savedFlashcardStats;
 
   const scopeAriaLabel = (() => {
     const studyPart =
@@ -2862,7 +3259,7 @@ export function QuizTab({
     if (mode === "quiz") {
       return `${studyPart}, ${savedQuizSessionCount} saved quiz${savedQuizSessionCount === 1 ? "" : "zes"}, ${archivedQuizSessionCount} archived quiz${archivedQuizSessionCount === 1 ? "" : "zes"}`;
     }
-    return `${studyPart}, ${savedFcSessionCount} saved flashcard set${savedFcSessionCount === 1 ? "" : "s"}, ${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}`;
+    return `${studyPart}, ${savedFcSessionCount} saved flashcard set${savedFcSessionCount === 1 ? "" : "s"}, ${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}, ${archivedFcSessionCount} archived flashcard set${archivedFcSessionCount === 1 ? "" : "s"}`;
   })();
 
   const iconCls = "h-3.5 w-3.5 shrink-0 opacity-80";
@@ -3109,6 +3506,37 @@ export function QuizTab({
                 </span>
               </>
             )}
+            {mode === "flashcard" && (
+              <>
+                <span className={sepCls} aria-hidden>
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Archive className={iconCls} aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => setShowArchivedSavedFlashcards((v) => !v)}
+                    className={cn(
+                      "transition-colors hover:text-foreground",
+                      showArchivedSavedFlashcards && "text-primary"
+                    )}
+                    aria-label={
+                      showArchivedSavedFlashcards
+                        ? "Show active saved flashcards"
+                        : "Show archived flashcard sets"
+                    }
+                    title={
+                      showArchivedSavedFlashcards
+                        ? "Show active saved flashcards"
+                        : "Show archived flashcard sets"
+                    }
+                  >
+                    {archivedFcSessionCount} archived flashcard set
+                    {archivedFcSessionCount === 1 ? "" : "s"}
+                  </button>
+                </span>
+              </>
+            )}
           </div>
           <ModeSelector
             mode={mode}
@@ -3122,6 +3550,7 @@ export function QuizTab({
               setShowFlashcardSettingsForm(false);
               setFlashcardResume(null);
               setActiveFlashcards([]);
+              setShowArchivedSavedFlashcards(false);
             }}
           />
         </div>
@@ -3166,6 +3595,9 @@ export function QuizTab({
               <FlashcardBrowseView
                 allTopics={topics}
                 savedListVersion={savedFlashcardListVersion}
+            showArchived={showArchivedSavedFlashcards}
+            onRequestShowArchivedChange={setShowArchivedSavedFlashcards}
+            onSavedListMutate={bumpSavedFlashcards}
                 onNewSet={() => setShowFlashcardSettingsForm(true)}
                 onContinue={(entry) => {
                   const resolved = resolveFlashcardsFromSnapshot(entry);
@@ -3254,6 +3686,10 @@ export function QuizTab({
             allTopics={topics}
             savedListVersion={savedListVersion}
             showArchived={showArchivedSavedQuizzes}
+            highlightedQuizId={highlightedSavedQuizId}
+            onRequestShowArchivedChange={setShowArchivedSavedQuizzes}
+            onQuizUnarchived={setHighlightedSavedQuizId}
+            onHighlightHandled={() => setHighlightedSavedQuizId(null)}
             onSavedListMutate={bumpSavedList}
             onNewQuiz={() => setShowQuizStartForm(true)}
             onContinue={handleContinueSavedQuiz}
