@@ -33,6 +33,7 @@ const sourceOptions: { type: SourceType; label: string; icon: React.ReactNode }[
 export function AddSourceDialog() {
   const [selectedType, setSelectedType] = useState<SourceType>("youtube");
   const [open, setOpen] = useState(false);
+  const isFileSource = selectedType === "pdf" || selectedType === "slides";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -72,15 +73,17 @@ export function AddSourceDialog() {
               <Input placeholder="Note title" />
               <Textarea placeholder="Write your notes here..." rows={5} />
             </div>
-          ) : (
+          ) : isFileSource ? (
             <div className="space-y-2">
               <Input
-                placeholder={
-                  selectedType === "pdf"
-                    ? "Upload or paste a link to your PDF"
-                    : "Paste URL here"
-                }
+                type="file"
+                accept={selectedType === "pdf" ? ".pdf,application/pdf" : ".ppt,.pptx,.key,.pdf"}
               />
+              <Input placeholder="Title (optional)" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Input placeholder="Paste URL here" />
               <Input placeholder="Title (optional)" />
             </div>
           )}

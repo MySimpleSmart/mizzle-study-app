@@ -9,6 +9,8 @@ import { SourcePanel } from "@/components/source-panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   ChevronDown,
   FileText,
   Sparkles,
@@ -34,6 +36,8 @@ interface AppSidebarProps {
   onArchiveSection: (sectionId: string) => void;
   onRestoreSection: (sectionId: string) => void;
   onRemoveSection: (sectionId: string) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 function SidebarSectionHeader({
@@ -88,6 +92,8 @@ export function AppSidebar({
   onArchiveSection,
   onRestoreSection,
   onRemoveSection,
+  collapsed,
+  onToggleCollapsed,
 }: AppSidebarProps) {
   const [openSections, setOpenSections] = useState<Record<SidebarSection, boolean>>({
     brief: true,
@@ -100,7 +106,57 @@ export function AppSidebar({
   };
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-r bg-white">
+    <aside
+      className={cn(
+        "relative flex h-full shrink-0 flex-col border-r bg-white transition-[width] duration-200",
+        collapsed ? "w-14" : "w-80"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        className="absolute top-5 -right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronLeft className="h-3.5 w-3.5" />
+        )}
+      </button>
+
+      {collapsed ? (
+        <div className="flex flex-1 flex-col items-center gap-2 py-3">
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+            title="Brief"
+            aria-label="Brief"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+            title="Sections"
+            aria-label="Sections"
+          >
+            <BookOpen className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-primary transition-colors hover:bg-primary/10"
+            title="Sources"
+            aria-label="Sources"
+          >
+            <FileText className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
       <ScrollArea className="flex-1">
         <div className="divide-y">
           <div>
@@ -163,6 +219,7 @@ export function AppSidebar({
           </div>
         </div>
       </ScrollArea>
+      )}
     </aside>
   );
 }

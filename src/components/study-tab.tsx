@@ -21,7 +21,20 @@ import {
 } from "@/components/enhance-with-visuals-dialog";
 import { StudyMarkdown } from "@/components/study-markdown";
 import { TopicEnhanceDemos } from "@/components/topic-enhance-demos";
-import { BookOpen, ChevronLeft, ChevronRight, Layers, Plus, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  BookOpen,
+  Bot,
+  CornerDownRight,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  MessageCircle,
+  Plus,
+  SendHorizontal,
+  Sparkles,
+  User,
+} from "lucide-react";
 
 interface StudyTabProps {
   topics: Topic[];
@@ -34,6 +47,12 @@ interface StudyTabProps {
     data: Omit<SavedQuizSnapshot, "id"> & { id?: string }
   ) => void;
 }
+
+type ChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
 
 /** Topics with study content not yet in this study; prefer topics that appear in generated sections */
 function useAddableTopics(
@@ -64,6 +83,9 @@ export function StudyTab({
   const [topicDemos, setTopicDemos] = useState<
     Record<string, EnhanceVisualMode[]>
   >({});
+  /** Per-topic follow-up chat history, persisted while user is in workspace */
+  const [topicChats, setTopicChats] = useState<Record<string, ChatMessage[]>>({});
+  const [draftQuestion, setDraftQuestion] = useState("");
   const addableTopics = useAddableTopics(topics, studyTopicIds, sections);
   const selectedTopicData = useMemo(() => {
     const map = Object.fromEntries(topics.map((t) => [t.id, t]));
@@ -125,6 +147,48 @@ export function StudyTab({
   const topicCount = topicsWithContent.length;
   const canGoPrev = activeTopicIndex > 0;
   const canGoNext = activeTopicIndex < topicCount - 1;
+  const currentTopicMessages = topicChats[currentTopic.id] ?? [];
+  const isTyping = draftQuestion.trim().length > 0;
+  const followUpSuggestions = useMemo(
+    () => [
+      `What is the most common mistake in ${currentTopic.name}?`,
+      `Can you explain ${currentTopic.name} in simpler terms?`,
+      `Give me one real-world example for ${currentTopic.name}.`,
+      `What should I memorize first for ${currentTopic.name}?`,
+      `Quiz me with 3 quick checks on ${currentTopic.name}.`,
+    ],
+    [currentTopic.name]
+  );
+  const postChatSuggestions = useMemo(
+    () => [
+      `Compare ${currentTopic.name} with another related concept.`,
+      `Give me one harder practice question on ${currentTopic.name}.`,
+      `Summarize ${currentTopic.name} in 3 bullet points.`,
+    ],
+    [currentTopic.name]
+  );
+
+  const sendFollowUp = (prefilledQuestion?: string) => {
+    const question = (prefilledQuestion ?? draftQuestion).trim();
+    if (!question) return;
+
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: question,
+    };
+    const assistantMsg: ChatMessage = {
+      id: `a-${Date.now() + 1}`,
+      role: "assistant",
+      text: `Great follow-up. For "${currentTopic.name}", focus on this next: identify one concrete example from your source, explain why it works, and compare it with one nearby concept. If you want, ask me to quiz you on this now.`,
+    };
+
+    setTopicChats((prev) => ({
+      ...prev,
+      [currentTopic.id]: [...(prev[currentTopic.id] ?? []), userMsg, assistantMsg],
+    }));
+    setDraftQuestion("");
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -267,6 +331,136 @@ export function StudyTab({
               />
             </div>
           )}
+
+          <section className="mt-6 rounded-xl border bg-white">
+            <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
+              <MessageCircle className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold text-foreground">
+                Follow-up chat for this topic
+              </h3>
+            </div>
+
+            <div className="space-y-3 px-4 py-4">
+              {currentTopicMessages.length === 0 && (
+                <div
+                  className={cn(
+                    "space-y-3 overflow-hidden transition-all duration-200 ease-out",
+                    isTyping
+                      ? "max-h-0 -translate-y-1 opacity-0"
+                      : "max-h-[420px] translate-y-0 opacity-100"
+                  )}
+                >
+                  <p className="text-sm text-muted-foreground">
+                    Ask a follow-up question about{" "}
+                    <span className="font-medium text-foreground">
+                      {currentTopic.name}
+                    </span>
+                    , or use one of these suggestions:
+                  </p>
+                  <ul className="rounded-lg border border-border/70">
+                    {followUpSuggestions.map((suggestion, idx) => (
+                      <li key={suggestion}>
+                        <button
+                          type="button"
+                          onClick={() => sendFollowUp(suggestion)}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/50",
+                            idx !== followUpSuggestions.length - 1 &&
+                              "border-b border-border/60"
+                          )}
+                        >
+                          <span className="inline-flex items-start gap-2">
+                            <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <span>{suggestion}</span>
+                          </span>
+                          {idx === 0 && (
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              Suggested
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {currentTopicMessages.length > 0 && (
+                <div className="space-y-2">
+                  {currentTopicMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className="flex items-start gap-2 rounded-lg border border-border/70 bg-background px-3 py-2"
+                    >
+                      {msg.role === "assistant" ? (
+                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                      ) : (
+                        <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <div>
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                          {msg.role === "assistant" ? "Tutor" : "You"}
+                        </p>
+                        <p className="text-sm text-foreground">{msg.text}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="relative">
+                <textarea
+                  value={draftQuestion}
+                  onChange={(e) => setDraftQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    e.preventDefault();
+                    sendFollowUp();
+                  }}
+                  placeholder={`Ask about ${currentTopic.name}...`}
+                  rows={2}
+                  className="min-h-[64px] w-full rounded-xl border border-input bg-background py-3 pr-14 pl-3 text-sm outline-none ring-offset-background transition-[border,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                />
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  className="absolute right-2 bottom-2"
+                  onClick={() => sendFollowUp()}
+                  disabled={!draftQuestion.trim()}
+                  aria-label="Send follow-up message"
+                >
+                  <SendHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+
+              {currentTopicMessages.length > 0 && (
+                <div
+                  className={cn(
+                    "overflow-hidden rounded-lg border border-border/70 transition-all duration-200 ease-out",
+                    isTyping
+                      ? "max-h-0 -translate-y-1 opacity-0"
+                      : "max-h-64 translate-y-0 opacity-100"
+                  )}
+                >
+                  {postChatSuggestions.map((suggestion, idx) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => sendFollowUp(suggestion)}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+                        idx !== postChatSuggestions.length - 1 &&
+                          "border-b border-border/60"
+                      )}
+                    >
+                      <CornerDownRight className="h-3.5 w-3.5 shrink-0" />
+                      <span>{suggestion}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
         </div>
       </ScrollArea>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppWorkspace } from "@/components/app-workspace";
 import { ClientOnly } from "@/components/client-only";
@@ -32,6 +33,7 @@ function firstActiveTopicIds(sections: Section[]): string[] {
 const WORKSPACE_TABS = new Set(["study", "quiz", "notes", "resources"]);
 
 export default function Home() {
+  const searchParams = useSearchParams();
   const [briefSelection, setBriefSelection] = useState<string[]>([]);
   const [briefVariantIndex, setBriefVariantIndex] = useState(0);
   const [reanalysePending, setReanalysePending] = useState(false);
@@ -41,15 +43,18 @@ export default function Home() {
   /** Section currently driving the main workspace; edits (e.g. add topic) sync to this card */
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState("study");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [savedQuizRemoteRefreshToken, setSavedQuizRemoteRefreshToken] =
     useState(0);
 
   useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    const tab = searchParams.get("tab");
     if (tab && WORKSPACE_TABS.has(tab)) {
       setWorkspaceTab(tab);
+      return;
     }
-  }, []);
+    setWorkspaceTab("study");
+  }, [searchParams]);
 
   const activeSections = useMemo(
     () => sections.filter((s) => !s.archived),
@@ -281,6 +286,10 @@ export default function Home() {
                 onArchiveSection={archiveSection}
                 onRestoreSection={restoreSection}
                 onRemoveSection={removeSection}
+                collapsed={sidebarCollapsed}
+                onToggleCollapsed={() =>
+                  setSidebarCollapsed((collapsed) => !collapsed)
+                }
               />
 
               <main className="flex-1 overflow-hidden bg-background">

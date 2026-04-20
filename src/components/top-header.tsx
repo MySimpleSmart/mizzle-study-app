@@ -2,21 +2,29 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, LayoutDashboard, LogOut, Settings, User } from "lucide-react";
 
 export function TopHeader() {
   const [profileOpen, setProfileOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <header className="relative flex h-14 shrink-0 items-center justify-between px-6">
       <div className="flex items-center gap-6">
-        <button className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <Image src="/logo.png" alt="Mizzle" width={28} height={28} />
           <span className="text-sm font-bold tracking-tight">Mizzle</span>
-        </button>
+        </Link>
 
-        <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground hover:text-foreground">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 text-muted-foreground hover:text-foreground"
+          onClick={() => router.push("/dashboard")}
+        >
           <LayoutDashboard className="h-4 w-4" />
           Dashboard
         </Button>
