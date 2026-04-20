@@ -40,7 +40,7 @@ const NoteRichEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-border bg-white">
         <div className="h-10 border-b bg-muted/50" />
         <div className="flex min-h-[280px] items-center justify-center px-4 text-sm text-muted-foreground">
           Loading editor…
@@ -348,7 +348,7 @@ export function NotesTab({ topics, studyTopicIds }: NotesTabProps) {
                 </Button>
               </div>
             </div>
-            <div className="rounded-xl border bg-white p-4 shadow-sm">
+            <div className="rounded-xl border bg-white p-4">
               <div className="mb-4 space-y-2">
               <span
                 id="note-topics-label"
@@ -405,7 +405,7 @@ export function NotesTab({ topics, studyTopicIds }: NotesTabProps) {
           {notes.map((note) => (
             <article
               key={note.id}
-              className="group flex h-full min-h-[11rem] flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm transition-colors hover:border-primary/25 hover:shadow-md"
+              className="group flex h-full min-h-[11rem] flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
             >
               {(() => {
                 const ordered = topicsForNote(note, topics);

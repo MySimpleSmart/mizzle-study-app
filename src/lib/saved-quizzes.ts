@@ -6,6 +6,7 @@ const MAX_SAVED = 50;
 export interface SavedQuizSnapshot {
   id: string;
   savedAt: string;
+  archivedAt?: string;
   settings: QuizSettings;
   questionIds: string[];
   answers: Record<
@@ -69,6 +70,25 @@ export function appendSavedQuiz(
 export function removeSavedQuiz(id: string): void {
   if (typeof window === "undefined") return;
   const next = readAll().filter((q) => q.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
+export function archiveSavedQuiz(id: string): void {
+  if (typeof window === "undefined") return;
+  const now = new Date().toISOString();
+  const next = readAll().map((q) =>
+    q.id === id ? { ...q, archivedAt: q.archivedAt ?? now } : q
+  );
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+}
+
+export function unarchiveSavedQuiz(id: string): void {
+  if (typeof window === "undefined") return;
+  const next = readAll().map((q) => {
+    if (q.id !== id) return q;
+    const { archivedAt: _archivedAt, ...rest } = q;
+    return rest;
+  });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 }
 

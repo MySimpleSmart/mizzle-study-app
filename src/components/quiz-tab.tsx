@@ -25,9 +25,11 @@ import {
   type SavedFlashcardSnapshot,
 } from "@/lib/saved-flashcards";
 import {
+  archiveSavedQuiz,
   getSavedQuizzes,
   removeSavedQuiz,
   savedQuizProgress,
+  unarchiveSavedQuiz,
   upsertSavedQuiz,
   type SavedQuizSnapshot,
 } from "@/lib/saved-quizzes";
@@ -57,6 +59,8 @@ import {
   ArrowLeftRight,
   Bookmark,
   BookOpen,
+  Archive,
+  ArchiveRestore,
   BrainCircuit,
   CheckCircle2,
   ChevronLeft,
@@ -381,7 +385,7 @@ function FlashcardSettingsPanel({
   return (
     <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-4 sm:p-6">
       <div className="w-full max-w-2xl">
-        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white">
           <div className="border-b border-border/60 bg-muted/25 px-5 py-4 sm:px-6">
             <div className="flex items-start gap-3">
               <div
@@ -783,7 +787,7 @@ function FlashcardViewer({
                 )}
                 style={{ transformStyle: "preserve-3d" }}
               >
-                <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border bg-white p-8 shadow-sm [backface-visibility:hidden]">
+                <div className="absolute inset-0 flex flex-col items-center justify-center rounded-2xl border bg-white p-8 [backface-visibility:hidden]">
                   <p className="mb-4 text-center text-lg font-medium leading-relaxed">
                     {card.front}
                   </p>
@@ -910,10 +914,14 @@ function resolveFlashcardsFromSnapshot(
 function SavedQuizCardsList({
   allTopics,
   refreshKey,
+  showArchived,
+  onListMutate,
   onContinue,
 }: {
   allTopics: Topic[];
   refreshKey: number;
+  showArchived: boolean;
+  onListMutate: () => void;
   onContinue: (entry: SavedQuizSnapshot) => void;
 }) {
   const [items, setItems] = useState<SavedQuizSnapshot[]>([]);
@@ -938,6 +946,19 @@ function SavedQuizCardsList({
   const handleRemove = (id: string) => {
     removeSavedQuiz(id);
     setItems(getSavedQuizzes());
+    onListMutate();
+  };
+
+  const handleArchive = (id: string) => {
+    archiveSavedQuiz(id);
+    setItems(getSavedQuizzes());
+    onListMutate();
+  };
+
+  const handleUnarchive = (id: string) => {
+    unarchiveSavedQuiz(id);
+    setItems(getSavedQuizzes());
+    onListMutate();
   };
 
   const confirmRemoveSavedQuiz = () => {
@@ -946,13 +967,23 @@ function SavedQuizCardsList({
     setPendingRemove(null);
   };
 
-  if (items.length === 0) {
+  const visibleItems = items.filter((item) => !item.archivedAt);
+  const archivedItems = items.filter((item) => Boolean(item.archivedAt));
+  const listedItems = showArchived ? archivedItems : visibleItems;
+
+  if (listedItems.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border/80 bg-muted/15 px-4 py-8 text-center">
         <p className="text-sm text-muted-foreground">
-          No saved quizzes yet. Start a new quiz, then use{" "}
-          <span className="font-medium text-foreground">Save quiz</span> during
-          practice to store it here.
+          {showArchived ? (
+            "No archived quizzes yet."
+          ) : (
+            <>
+              No saved quizzes yet. Start a new quiz, then use{" "}
+              <span className="font-medium text-foreground">Save quiz</span>{" "}
+              during practice to store it here.
+            </>
+          )}
         </p>
       </div>
     );
@@ -991,7 +1022,7 @@ function SavedQuizCardsList({
       </Dialog>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {items.map((entry) => {
+      {listedItems.map((entry) => {
         const { answered, total } = savedQuizProgress(entry);
         const names = topicNamesFromIds(
           entry.settings.selectedTopics,
@@ -999,22 +1030,22 @@ function SavedQuizCardsList({
         );
         const progressPercent =
           total > 0 ? Math.round((answered / total) * 100) : 0;
+        const isComplete = total > 0 && answered === total;
 
         return (
           <div
             key={entry.id}
-            className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm transition-colors hover:border-primary/25 hover:shadow-md"
+            className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
           >
+            <span className="mb-2 inline-flex self-start rounded-full bg-primary/8 px-2 py-0.5 text-xs text-primary">
+              {entry.questionIds.length} questions in session
+            </span>
             <p className="text-sm font-medium leading-snug text-foreground">
               {names}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              {entry.settings.questionCount} requested ·{" "}
               {difficultyLabel[entry.settings.difficulty]} ·{" "}
               {formatSelectionSummary(entry.settings.questionFormats)}
-            </p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {entry.questionIds.length} questions in session
             </p>
             <div
               className="mt-3"
@@ -1022,7 +1053,11 @@ function SavedQuizCardsList({
             >
               <Progress
                 value={progressPercent}
-                className="w-full gap-0 [&_[data-slot=progress-track]]:h-2"
+                className={cn(
+                  "w-full gap-0 [&_[data-slot=progress-track]]:h-2",
+                  isComplete &&
+                    "[&_[data-slot=progress-indicator]]:bg-emerald-500"
+                )}
               />
             </div>
             <div className="mt-4 flex flex-nowrap items-center gap-2 border-t border-border/50 pt-3">
@@ -1030,6 +1065,27 @@ function SavedQuizCardsList({
                 {formatSavedQuizDate(entry.savedAt)}
               </p>
               <div className="flex shrink-0 items-center gap-2">
+                {showArchived ? (
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                    aria-label="Unarchive saved quiz"
+                    title="Unarchive saved quiz"
+                    onClick={() => handleUnarchive(entry.id)}
+                  >
+                    <ArchiveRestore className="h-4 w-4" />
+                  </button>
+                ) : isComplete ? (
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                    aria-label="Archive saved quiz"
+                    title="Archive saved quiz"
+                    onClick={() => handleArchive(entry.id)}
+                  >
+                    <Archive className="h-4 w-4" />
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
@@ -1043,7 +1099,7 @@ function SavedQuizCardsList({
                   size="sm"
                   onClick={() => onContinue(entry)}
                 >
-                  Continue
+                  {isComplete ? "Review" : "Continue"}
                 </Button>
               </div>
             </div>
@@ -1058,11 +1114,15 @@ function SavedQuizCardsList({
 function QuizBrowseView({
   allTopics,
   savedListVersion,
+  showArchived,
+  onSavedListMutate,
   onNewQuiz,
   onContinue,
 }: {
   allTopics: Topic[];
   savedListVersion: number;
+  showArchived: boolean;
+  onSavedListMutate: () => void;
   onNewQuiz: () => void;
   onContinue: (entry: SavedQuizSnapshot) => void;
 }) {
@@ -1091,6 +1151,8 @@ function QuizBrowseView({
         <SavedQuizCardsList
           allTopics={allTopics}
           refreshKey={savedListVersion}
+          showArchived={showArchived}
+          onListMutate={onSavedListMutate}
           onContinue={onContinue}
         />
       </div>
@@ -1188,7 +1250,7 @@ function SavedFlashcardCardsList({
           return (
             <div
               key={entry.id}
-              className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 shadow-sm transition-colors hover:border-primary/25 hover:shadow-md"
+              className="group flex flex-col rounded-xl border border-border/80 bg-white p-4 transition-colors hover:border-primary/25 hover:shadow-md"
             >
               <p className="text-sm font-medium leading-snug text-foreground">
                 {names || "Flashcard set"}
@@ -1385,7 +1447,7 @@ function QuizSettingsPanel({
             Saved quizzes
           </Button>
         </div>
-        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-2xl border border-border/80 bg-white">
           <div className="border-b border-border/60 bg-muted/25 px-5 py-4 sm:px-6">
             <div className="flex items-start gap-3">
               <div
@@ -2583,6 +2645,7 @@ export function QuizTab({
     correct: 0,
     incorrect: 0,
   });
+  const [showArchivedSavedQuizzes, setShowArchivedSavedQuizzes] = useState(false);
 
   const bumpSavedList = useCallback(() => {
     setSavedListVersion((v) => v + 1);
@@ -2755,10 +2818,11 @@ export function QuizTab({
   );
 
   const savedQuizStats = useMemo(() => {
-    const list = getSavedQuizzes();
-    const sessions = list.length;
-    const cards = list.reduce((sum, q) => sum + q.questionIds.length, 0);
-    return { sessions, cards };
+    const all = getSavedQuizzes();
+    const visible = all.filter((q) => !q.archivedAt);
+    const archivedSessions = all.length - visible.length;
+    const sessions = visible.length;
+    return { sessions, archivedSessions };
   }, [savedListVersion]);
 
   const savedFlashcardStats = useMemo(() => {
@@ -2779,8 +2843,10 @@ export function QuizTab({
     quizProgressTotal > 0 &&
     quizProgressAnswered === quizProgressTotal;
 
-  const { sessions: savedQuizSessionCount, cards: savedQuizCardCount } =
-    savedQuizStats;
+  const {
+    sessions: savedQuizSessionCount,
+    archivedSessions: archivedQuizSessionCount,
+  } = savedQuizStats;
   const { sessions: savedFcSessionCount, cards: savedFcCardCount } =
     savedFlashcardStats;
 
@@ -2794,7 +2860,7 @@ export function QuizTab({
           ? `${flashcardAvailable} flashcard${flashcardAvailable === 1 ? "" : "s"} for current study`
           : "No study topics";
     if (mode === "quiz") {
-      return `${studyPart}, ${savedQuizSessionCount} saved quiz${savedQuizSessionCount === 1 ? "" : "zes"}, ${savedQuizCardCount} quiz question${savedQuizCardCount === 1 ? "" : "s"}`;
+      return `${studyPart}, ${savedQuizSessionCount} saved quiz${savedQuizSessionCount === 1 ? "" : "zes"}, ${archivedQuizSessionCount} archived quiz${archivedQuizSessionCount === 1 ? "" : "zes"}`;
     }
     return `${studyPart}, ${savedFcSessionCount} saved flashcard set${savedFcSessionCount === 1 ? "" : "s"}, ${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}`;
   })();
@@ -2998,17 +3064,51 @@ export function QuizTab({
                   : `${savedFcSessionCount} saved set${savedFcSessionCount === 1 ? "" : "s"}`}
               </span>
             </span>
-            <span className={sepCls} aria-hidden>
-              ·
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <SquareStack className={iconCls} aria-hidden />
-              <span>
-                {mode === "quiz"
-                  ? `${savedQuizCardCount} card${savedQuizCardCount === 1 ? "" : "s"}`
-                  : `${savedFcCardCount} flashcard${savedFcCardCount === 1 ? "" : "s"}`}
-              </span>
-            </span>
+            {mode !== "quiz" && (
+              <>
+                <span className={sepCls} aria-hidden>
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <SquareStack className={iconCls} aria-hidden />
+                  <span>
+                    {savedFcCardCount} flashcard
+                    {savedFcCardCount === 1 ? "" : "s"}
+                  </span>
+                </span>
+              </>
+            )}
+            {mode === "quiz" && (
+              <>
+                <span className={sepCls} aria-hidden>
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Archive className={iconCls} aria-hidden />
+                  <button
+                    type="button"
+                    onClick={() => setShowArchivedSavedQuizzes((v) => !v)}
+                    className={cn(
+                      "transition-colors hover:text-foreground",
+                      showArchivedSavedQuizzes && "text-primary"
+                    )}
+                    aria-label={
+                      showArchivedSavedQuizzes
+                        ? "Show active saved quizzes"
+                        : "Show archived hidden quizzes"
+                    }
+                    title={
+                      showArchivedSavedQuizzes
+                        ? "Show active saved quizzes"
+                        : "Show archived hidden quizzes"
+                    }
+                  >
+                    {archivedQuizSessionCount} archived quiz
+                    {archivedQuizSessionCount === 1 ? "" : "zes"}
+                  </button>
+                </span>
+              </>
+            )}
           </div>
           <ModeSelector
             mode={mode}
@@ -3153,6 +3253,8 @@ export function QuizTab({
           <QuizBrowseView
             allTopics={topics}
             savedListVersion={savedListVersion}
+            showArchived={showArchivedSavedQuizzes}
+            onSavedListMutate={bumpSavedList}
             onNewQuiz={() => setShowQuizStartForm(true)}
             onContinue={handleContinueSavedQuiz}
           />

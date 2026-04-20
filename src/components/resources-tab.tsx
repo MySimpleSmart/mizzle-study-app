@@ -1,18 +1,26 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { Source } from "@/lib/data";
 import { sampleSources } from "@/lib/data";
 import { SourceBadge } from "@/components/source-badge";
 import { AddSourceDialog } from "@/components/add-source-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
 import {
-  ExternalLink,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   FileStack,
   FolderOpen,
   Link2,
-  MoreHorizontal,
   NotebookPen,
+  Trash2,
 } from "lucide-react";
 
 const statIconCls = "h-3.5 w-3.5 shrink-0 opacity-80";
@@ -20,12 +28,14 @@ const statSepCls =
   "inline-flex h-4 shrink-0 select-none items-center text-muted-foreground/45";
 
 export function ResourcesTab() {
+  const [sources, setSources] = useState(sampleSources);
+  const [pendingRemove, setPendingRemove] = useState<Source | null>(null);
   const sourceStats = useMemo(() => {
     let linkSources = 0;
     let fileSources = 0;
     let noteSources = 0;
 
-    for (const source of sampleSources) {
+    for (const source of sources) {
       if (source.type === "youtube" || source.type === "website") {
         linkSources += 1;
         continue;
@@ -38,12 +48,12 @@ export function ResourcesTab() {
     }
 
     return {
-      total: sampleSources.length,
+      total: sources.length,
       linkSources,
       fileSources,
       noteSources,
     };
-  }, []);
+  }, [sources]);
 
   const resourcesScopeAriaLabel = `${sourceStats.total} total source${
     sourceStats.total === 1 ? "" : "s"
@@ -117,25 +127,74 @@ export function ResourcesTab() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            {sampleSources.map((source) => (
-              <ResourceCard key={source.id} source={source} />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {sources.map((source) => (
+              <ResourceCard
+                key={source.id}
+                source={source}
+                onRemove={() => setPendingRemove(source)}
+              />
             ))}
           </div>
         </div>
       </ScrollArea>
+
+      <Dialog
+        open={pendingRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingRemove(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove resource?</DialogTitle>
+            <DialogDescription>
+              This will remove{" "}
+              <span className="font-medium text-foreground">
+                {pendingRemove?.title ?? "this resource"}
+              </span>{" "}
+              from the current study resources list.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingRemove(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!pendingRemove) return;
+                setSources((prev) =>
+                  prev.filter((item) => item.id !== pendingRemove.id)
+                );
+                setPendingRemove(null);
+              }}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function ResourceCard({ source }: { source: Source }) {
+function ResourceCard({
+  source,
+  onRemove,
+}: {
+  source: Source;
+  onRemove: () => void;
+}) {
   return (
-    <div className="group rounded-xl border bg-white p-4 transition-colors hover:border-primary/30">
-      <div className="flex items-start justify-between">
+    <div className="group rounded-xl border bg-white p-4 transition-[border-color,box-shadow] hover:border-primary/25 hover:shadow-md">
+      <div className="flex items-start">
         <SourceBadge type={source.type} />
-        <button className="rounded-md p-1 text-muted-foreground/30 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
       </div>
 
       <h4 className="mt-2.5 text-sm font-medium text-foreground line-clamp-2">
@@ -152,12 +211,15 @@ function ResourceCard({ source }: { source: Source }) {
         <span className="text-xs text-muted-foreground/60">
           {source.addedAt}
         </span>
-        {source.url && (
-          <button className="inline-flex items-center gap-1 text-xs text-primary/70 hover:text-primary">
-            Open
-            <ExternalLink className="h-3 w-3" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+          aria-label="Remove source"
+          title="Remove source"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
