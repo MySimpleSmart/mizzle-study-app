@@ -113,7 +113,7 @@ export function ResourcesTab() {
               <h3 className="text-base font-semibold">Study Resources</h3>
             </div>
             <div className="w-32">
-              <AddSourceDialog />
+              <AddSourceDialog triggerVariant="default" />
             </div>
           </div>
 

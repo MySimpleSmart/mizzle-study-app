@@ -57,7 +57,7 @@ export function SectionMiniQuiz({
   const [sectionQuizRunKey, setSectionQuizRunKey] = useState(0);
   const [sectionQuizCompleteOpen, setSectionQuizCompleteOpen] =
     useState(false);
-  /** Tracks previous `sectionQuizRunComplete` to open modal on false→true only. */
+  /** Track completion edge to auto-open modal once per run completion. */
   const wasSectionQuizRunCompleteRef = useRef(false);
 
   useEffect(() => {
@@ -115,6 +115,7 @@ export function SectionMiniQuiz({
   const restartSameQuestions = useCallback(() => {
     setAnswers({});
     setSectionQuizCompleteOpen(false);
+    setSectionQuizRunKey((k) => k + 1);
     wasSectionQuizRunCompleteRef.current = false;
   }, []);
 
@@ -150,6 +151,15 @@ export function SectionMiniQuiz({
     });
   };
 
+  const closeQuizRun = useCallback(() => {
+    setQuestions(null);
+    setRunSettings(null);
+    setAnswers({});
+    setSectionQuizCompleteOpen(false);
+    setSectionQuizRunKey((k) => k + 1);
+    wasSectionQuizRunCompleteRef.current = false;
+  }, []);
+
   const hasQuiz = questions !== null && questions.length > 0;
   const canSave = hasQuiz && runSettings != null;
 
@@ -174,6 +184,11 @@ export function SectionMiniQuiz({
     if (!questions?.length) return { correct: 0, incorrect: 0 };
     return scoreVisibleQuizRun(questions, answers);
   }, [questions, answers]);
+
+  const sectionQuizPercent = useMemo(() => {
+    if (!questions?.length) return 0;
+    return Math.round((sectionQuizScore.correct / questions.length) * 100);
+  }, [questions, sectionQuizScore.correct]);
 
   const sectionQuizRunComplete =
     hasQuiz && questions!.length > 0 && answeredCount === questions!.length;
@@ -214,11 +229,11 @@ export function SectionMiniQuiz({
                 className="h-5 w-5 shrink-0 text-green-600"
                 aria-hidden
               />
-              Section quiz complete
+              Quiz completed
             </DialogTitle>
-            <DialogDescription className="text-center text-sm text-muted-foreground">
+            <DialogDescription className="text-left text-sm text-muted-foreground">
               All {questions?.length ?? 0} question
-              {(questions?.length ?? 0) === 1 ? "" : "s"} checked.
+              {(questions?.length ?? 0) === 1 ? "" : "s"} checked in this run.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-2">
@@ -247,27 +262,35 @@ export function SectionMiniQuiz({
               </p>
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-2">
+          <div className="mt-4 flex min-w-0 w-full flex-col gap-2">
             <Button
               type="button"
               variant="outline"
-              className="gap-1.5"
-              onClick={handleCompleteRegenerate}
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              Re-generate
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-1.5"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
               onClick={handleCompleteRestart}
             >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Restart (same questions)
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Restart same questions
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                Same set, answers cleared.
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-auto w-full min-w-0 max-w-full shrink whitespace-normal flex-col items-stretch justify-start gap-0.5 py-2.5 text-left"
+              onClick={handleCompleteRegenerate}
+            >
+              <span className="block w-full min-w-0 break-words text-left text-sm font-medium text-foreground">
+                Re-generate (same rules)
+              </span>
+              <span className="block w-full min-w-0 break-words text-left text-[11px] text-muted-foreground">
+                New draw; same settings and topics.
+              </span>
             </Button>
           </div>
-          <DialogFooter className="mt-1 sm:justify-center">
+          <DialogFooter className="mt-3 border-t border-border/60 pt-3 sm:justify-center">
             <Button
               type="button"
               variant="ghost"
@@ -275,7 +298,7 @@ export function SectionMiniQuiz({
               className="text-muted-foreground"
               onClick={handleCompleteClose}
             >
-              Close
+              Continue reviewing
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -349,17 +372,6 @@ export function SectionMiniQuiz({
               questions · Mixed
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {sectionQuizRunComplete && (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-xs font-medium text-primary"
-                  onClick={() => setSectionQuizCompleteOpen(true)}
-                >
-                  Results
-                </Button>
-              )}
               <Button
                 type="button"
                 variant="outline"
@@ -412,7 +424,7 @@ export function SectionMiniQuiz({
           <div className="mt-2 space-y-2">
             {questions.map((q, i) => (
               <QuestionCard
-                key={q.id}
+                key={`${sectionQuizRunKey}-${q.id}`}
                 question={q}
                 index={i}
                 embedded
@@ -422,20 +434,49 @@ export function SectionMiniQuiz({
               />
             ))}
           </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={cn(
-              "mt-3 w-full gap-1.5 border-primary/25 bg-white",
-              canSave && "hover:bg-primary/5"
-            )}
-            disabled={!canSave}
-            onClick={save}
-          >
-            <Save className="h-3.5 w-3.5" />
-            Save to main Quiz
-          </Button>
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              onClick={closeQuizRun}
+            >
+              Close quiz
+            </Button>
+            <Button
+              type="button"
+              className="gap-1.5"
+              disabled={!canSave}
+              onClick={save}
+            >
+              <Save className="h-3.5 w-3.5" />
+              Save to main Quiz
+            </Button>
+          </div>
+
+          {sectionQuizRunComplete && (
+            <div className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-medium text-foreground">
+                    Result: {sectionQuizScore.correct}/{questions!.length} correct
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Score {sectionQuizPercent}% · Missed {sectionQuizScore.incorrect}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 gap-1 text-xs"
+                  onClick={() => setSectionQuizCompleteOpen(true)}
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Re-generate
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

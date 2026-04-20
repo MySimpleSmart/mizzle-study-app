@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Section, Topic } from "@/lib/data";
 import type { SavedQuizSnapshot } from "@/lib/saved-quizzes";
 import { SectionMiniQuiz } from "@/components/section-mini-quiz";
 import { sampleStudyContent } from "@/lib/data";
+import { appendStudyNote } from "@/lib/notes-storage";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +31,7 @@ import {
   ChevronRight,
   Layers,
   MessageCircle,
+  Highlighter,
   Plus,
   SendHorizontal,
   Sparkles,
@@ -53,6 +55,107 @@ type ChatMessage = {
   role: "user" | "assistant";
   text: string;
 };
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function splitHighlightExcerpts(input: string): string[] {
+  const compact = input.replace(/\s+/g, " ").trim();
+  if (!compact) return [];
+  const parts =
+    compact.match(/[^.!?]+(?:[.!?]+|$)/g)?.map((p) => p.trim()) ?? [];
+  const cleaned = parts.filter((p) => p.length >= 3);
+  return cleaned.length > 0 ? cleaned : [compact];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function clearExistingHighlights(container: HTMLElement) {
+  const marks = container.querySelectorAll("mark[data-study-highlight='1']");
+  marks.forEach((mark) => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    const textNode = document.createTextNode(mark.textContent ?? "");
+    parent.replaceChild(textNode, mark);
+    parent.normalize();
+  });
+}
+
+function wrapTextSliceWithMark(textNode: Text, start: number, end: number) {
+  if (start >= end) return;
+  let target = textNode;
+  if (start > 0) {
+    target = target.splitText(start);
+  }
+  const length = end - start;
+  if (length < (target.nodeValue ?? "").length) {
+    target.splitText(length);
+  }
+  const mark = document.createElement("mark");
+  mark.dataset.studyHighlight = "1";
+  mark.className =
+    "rounded-[2px] bg-yellow-200/80 px-[1px] text-inherit dark:bg-yellow-300/40";
+  mark.textContent = target.nodeValue ?? "";
+  target.parentNode?.replaceChild(mark, target);
+}
+
+function applyHighlightsToArticle(container: HTMLElement, excerpts: string[]) {
+  clearExistingHighlights(container);
+  if (excerpts.length === 0) return;
+
+  for (const raw of excerpts) {
+    const needle = raw.trim();
+    if (!needle) continue;
+
+    // Recompute text-node map each pass so offsets remain correct after mutations.
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    const slices: Array<{ node: Text; start: number; end: number }> = [];
+    let fullText = "";
+    let node = walker.nextNode();
+    while (node) {
+      const textNode = node as Text;
+      const value = textNode.nodeValue ?? "";
+      if (value.length > 0) {
+        const start = fullText.length;
+        fullText += value;
+        slices.push({ node: textNode, start, end: fullText.length });
+      }
+      node = walker.nextNode();
+    }
+    if (slices.length === 0 || fullText.length === 0) continue;
+
+    const tokenPattern = needle
+      .split(/\s+/)
+      .map((token) => escapeRegExp(token))
+      .join("\\s+");
+    if (!tokenPattern) continue;
+    const match = new RegExp(tokenPattern, "i").exec(fullText);
+    if (!match || match.index === undefined) continue;
+
+    const matchStart = match.index;
+    const matchEnd = matchStart + match[0].length;
+
+    for (let i = slices.length - 1; i >= 0; i -= 1) {
+      const slice = slices[i]!;
+      const overlapStart = Math.max(matchStart, slice.start);
+      const overlapEnd = Math.min(matchEnd, slice.end);
+      if (overlapStart >= overlapEnd) continue;
+      wrapTextSliceWithMark(
+        slice.node,
+        overlapStart - slice.start,
+        overlapEnd - slice.start
+      );
+    }
+  }
+}
 
 /** Topics with study content not yet in this study; prefer topics that appear in generated sections */
 function useAddableTopics(
@@ -86,6 +189,19 @@ export function StudyTab({
   /** Per-topic follow-up chat history, persisted while user is in workspace */
   const [topicChats, setTopicChats] = useState<Record<string, ChatMessage[]>>({});
   const [draftQuestion, setDraftQuestion] = useState("");
+  const [selectedExcerpt, setSelectedExcerpt] = useState("");
+  const [selectionToolbarPos, setSelectionToolbarPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [topicHighlights, setTopicHighlights] = useState<Record<string, string[]>>(
+    {}
+  );
+  const [selectionActionMessage, setSelectionActionMessage] = useState("");
+  const studyArticleRef = useRef<HTMLElement | null>(null);
+  const studyContentRef = useRef<HTMLDivElement | null>(null);
+  const chatSectionRef = useRef<HTMLElement | null>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const addableTopics = useAddableTopics(topics, studyTopicIds, sections);
   const selectedTopicData = useMemo(() => {
     const map = Object.fromEntries(topics.map((t) => [t.id, t]));
@@ -148,6 +264,7 @@ export function StudyTab({
   const canGoPrev = activeTopicIndex > 0;
   const canGoNext = activeTopicIndex < topicCount - 1;
   const currentTopicMessages = topicChats[currentTopic.id] ?? [];
+  const currentTopicHighlights = topicHighlights[currentTopic.id] ?? [];
   const isTyping = draftQuestion.trim().length > 0;
   const followUpSuggestions = useMemo(
     () => [
@@ -189,6 +306,119 @@ export function StudyTab({
     }));
     setDraftQuestion("");
   };
+
+  const captureSelectedExcerpt = () => {
+    if (typeof window === "undefined") return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      setSelectedExcerpt("");
+      setSelectionToolbarPos(null);
+      return;
+    }
+    const text = selection.toString().replace(/\s+/g, " ").trim();
+    const article = studyArticleRef.current;
+    if (!article || text.length < 3) {
+      setSelectedExcerpt("");
+      setSelectionToolbarPos(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const withinArticle = article.contains(range.commonAncestorContainer);
+    if (!withinArticle) {
+      setSelectedExcerpt("");
+      setSelectionToolbarPos(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    if (!rect.width && !rect.height) {
+      setSelectedExcerpt("");
+      setSelectionToolbarPos(null);
+      return;
+    }
+    setSelectedExcerpt(text);
+    setSelectionToolbarPos({
+      x: rect.left + rect.width / 2,
+      y: rect.top - 10,
+    });
+  };
+
+  const clearSelectionUi = () => {
+    setSelectedExcerpt("");
+    setSelectionToolbarPos(null);
+    if (typeof window !== "undefined") window.getSelection()?.removeAllRanges();
+  };
+
+  const handleHighlightSelection = () => {
+    const excerpt = selectedExcerpt.trim();
+    if (!excerpt) return;
+    const chunks = splitHighlightExcerpts(excerpt);
+    setTopicHighlights((prev) => {
+      const current = prev[currentTopic.id] ?? [];
+      const next = [...current];
+      for (const chunk of chunks) {
+        if (!next.includes(chunk)) next.push(chunk);
+      }
+      if (next.length === current.length) return prev;
+      return { ...prev, [currentTopic.id]: next };
+    });
+    setSelectionActionMessage("Highlighted.");
+    clearSelectionUi();
+  };
+
+  const handleAskSelectionInChat = () => {
+    const excerpt = selectedExcerpt.trim();
+    if (!excerpt) return;
+    sendFollowUp(
+      `Can you clarify this excerpt from ${currentTopic.name}?\n\n"${excerpt}"`
+    );
+    setSelectionActionMessage("Sent to section chat.");
+    clearSelectionUi();
+    chatSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    window.setTimeout(() => {
+      chatInputRef.current?.focus();
+    }, 260);
+  };
+
+  const handleAddSelectionToNote = () => {
+    const excerpt = selectedExcerpt.trim();
+    if (!excerpt) return;
+    appendStudyNote({
+      id: `note-${Date.now()}`,
+      content: `<p><strong>From ${escapeHtml(currentTopic.name)}:</strong></p><blockquote><p>${escapeHtml(excerpt)}</p></blockquote>`,
+      createdAt: new Date().toISOString(),
+      topicIds: [currentTopic.id],
+    });
+    setSelectionActionMessage("Added to notes.");
+    clearSelectionUi();
+  };
+
+  useEffect(() => {
+    if (!selectionActionMessage) return;
+    const id = window.setTimeout(() => setSelectionActionMessage(""), 1800);
+    return () => window.clearTimeout(id);
+  }, [selectionActionMessage]);
+
+  useEffect(() => {
+    const content = studyContentRef.current;
+    if (!content) return;
+    applyHighlightsToArticle(content, currentTopicHighlights);
+  }, [currentTopic.id, currentTopicHighlights]);
+
+  useEffect(() => {
+    const hideToolbar = () => {
+      setSelectedExcerpt("");
+      setSelectionToolbarPos(null);
+    };
+    window.addEventListener("scroll", hideToolbar, true);
+    window.addEventListener("resize", hideToolbar);
+    return () => {
+      window.removeEventListener("scroll", hideToolbar, true);
+      window.removeEventListener("resize", hideToolbar);
+    };
+  }, []);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -285,6 +515,9 @@ export function StudyTab({
         <div className="p-6">
           <article
             key={currentTopic.id}
+            ref={studyArticleRef}
+            onMouseUp={captureSelectedExcerpt}
+            onKeyUp={captureSelectedExcerpt}
             className="rounded-xl border bg-white px-6 pt-4 pb-6"
           >
             <div className="mb-4 flex items-start justify-between gap-3 border-b border-border/60 pb-3">
@@ -305,7 +538,9 @@ export function StudyTab({
                 <span className="sm:hidden">Enhance</span>
               </button>
             </div>
-            <StudyMarkdown content={sampleStudyContent[currentTopic.id]!} />
+            <div ref={studyContentRef}>
+              <StudyMarkdown content={sampleStudyContent[currentTopic.id]!} />
+            </div>
             <TopicEnhanceDemos
               topicName={currentTopic.name}
               modes={topicDemos[currentTopic.id] ?? []}
@@ -321,6 +556,31 @@ export function StudyTab({
                 });
               }}
             />
+
+            {selectionActionMessage && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {selectionActionMessage}
+              </p>
+            )}
+
+            {currentTopicHighlights.length > 0 && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
+                <div className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-amber-800">
+                  <Highlighter className="h-3.5 w-3.5" />
+                  Highlighted
+                </div>
+                <ul className="space-y-1.5">
+                  {currentTopicHighlights.map((excerpt) => (
+                    <li
+                      key={excerpt}
+                      className="px-0 py-0.5 text-sm text-foreground"
+                    >
+                      {excerpt}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </article>
 
           {activeSection && (
@@ -332,7 +592,7 @@ export function StudyTab({
             </div>
           )}
 
-          <section className="mt-6 rounded-xl border bg-white">
+          <section ref={chatSectionRef} className="mt-6 rounded-xl border bg-white">
             <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
               <MessageCircle className="h-4 w-4 text-primary" />
               <h3 className="text-sm font-semibold text-foreground">
@@ -344,10 +604,10 @@ export function StudyTab({
               {currentTopicMessages.length === 0 && (
                 <div
                   className={cn(
-                    "space-y-3 overflow-hidden transition-all duration-200 ease-out",
+                    "space-y-3 transition-opacity duration-200 ease-out",
                     isTyping
-                      ? "max-h-0 -translate-y-1 opacity-0"
-                      : "max-h-[420px] translate-y-0 opacity-100"
+                      ? "pointer-events-none opacity-0"
+                      : "opacity-100"
                   )}
                 >
                   <p className="text-sm text-muted-foreground">
@@ -410,6 +670,7 @@ export function StudyTab({
 
               <div className="relative">
                 <textarea
+                  ref={chatInputRef}
                   value={draftQuestion}
                   onChange={(e) => setDraftQuestion(e.target.value)}
                   onKeyDown={(e) => {
@@ -436,10 +697,10 @@ export function StudyTab({
               {currentTopicMessages.length > 0 && (
                 <div
                   className={cn(
-                    "overflow-hidden rounded-lg border border-border/70 transition-all duration-200 ease-out",
+                    "rounded-lg border border-border/70 transition-opacity duration-200 ease-out",
                     isTyping
-                      ? "max-h-0 -translate-y-1 opacity-0"
-                      : "max-h-64 translate-y-0 opacity-100"
+                      ? "pointer-events-none opacity-0"
+                      : "opacity-100"
                   )}
                 >
                   {postChatSuggestions.map((suggestion, idx) => (
@@ -463,6 +724,41 @@ export function StudyTab({
           </section>
         </div>
       </ScrollArea>
+
+      {selectedExcerpt && selectionToolbarPos && (
+        <div
+          className="fixed z-30 -translate-x-1/2 -translate-y-full"
+          style={{ left: selectionToolbarPos.x, top: selectionToolbarPos.y }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <div className="flex items-center gap-1 rounded-xl border bg-white p-1.5 shadow-lg">
+            <button
+              type="button"
+              onClick={handleHighlightSelection}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <Highlighter className="h-3.5 w-3.5" />
+              Highlight
+            </button>
+            <button
+              type="button"
+              onClick={handleAskSelectionInChat}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <MessageCircle className="h-3.5 w-3.5" />
+              Ask
+            </button>
+            <button
+              type="button"
+              onClick={handleAddSelectionToNote}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add note
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/80 bg-white px-4 py-3 sm:px-6">
         <Button

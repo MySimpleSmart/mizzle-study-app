@@ -30,7 +30,11 @@ const sourceOptions: { type: SourceType; label: string; icon: React.ReactNode }[
   { type: "notes", label: "Notes", icon: <StickyNote className="h-4 w-4" /> },
 ];
 
-export function AddSourceDialog() {
+interface AddSourceDialogProps {
+  triggerVariant?: "default" | "outline" | "secondary" | "ghost" | "destructive" | "link";
+}
+
+export function AddSourceDialog({ triggerVariant = "outline" }: AddSourceDialogProps) {
   const [selectedType, setSelectedType] = useState<SourceType>("youtube");
   const [open, setOpen] = useState(false);
   const isFileSource = selectedType === "pdf" || selectedType === "slides";
@@ -39,7 +43,7 @@ export function AddSourceDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm" className="w-full gap-1.5" />
+          <Button variant={triggerVariant} className="w-full gap-1.5" />
         }
       >
         <Plus className="h-3.5 w-3.5" />
