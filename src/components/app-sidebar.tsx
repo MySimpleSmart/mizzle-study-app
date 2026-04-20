@@ -108,14 +108,14 @@ export function AppSidebar({
   return (
     <aside
       className={cn(
-        "relative flex h-full shrink-0 flex-col border-r bg-white transition-[width] duration-200",
+        "group/sidebar relative flex h-full shrink-0 flex-col border-r bg-white transition-[width] duration-200",
         collapsed ? "w-14" : "w-80"
       )}
     >
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className="absolute top-5 -right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
+        className="pointer-events-none absolute top-5 -right-3 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border bg-background text-muted-foreground opacity-0 shadow-sm transition-all duration-200 hover:bg-muted hover:text-foreground group-hover/sidebar:pointer-events-auto group-hover/sidebar:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100"
         aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       >

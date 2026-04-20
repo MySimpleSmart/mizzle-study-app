@@ -419,7 +419,7 @@ export function StudyTab({
                   }}
                   placeholder={`Ask about ${currentTopic.name}...`}
                   rows={2}
-                  className="min-h-[64px] w-full rounded-xl border border-input bg-background py-3 pr-14 pl-3 text-sm outline-none ring-offset-background transition-[border,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                  className="min-h-[64px] w-full rounded-xl border border-input bg-background py-3 pr-14 pl-3 text-sm outline-none ring-offset-background transition-[border,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring/70 focus-visible:ring-1 focus-visible:ring-ring/25"
                 />
                 <Button
                   type="button"
