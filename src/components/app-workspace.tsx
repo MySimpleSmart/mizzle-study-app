@@ -25,6 +25,7 @@ interface AppWorkspaceProps {
   workspaceTab: string;
   onWorkspaceTabChange: (value: string) => void;
   savedQuizRemoteRefreshToken: number;
+  onStudyChatExpandedChange?: (expanded: boolean) => void;
 }
 
 function WorkspaceEmpty() {
@@ -59,6 +60,7 @@ export function AppWorkspace({
   workspaceTab,
   onWorkspaceTabChange,
   savedQuizRemoteRefreshToken,
+  onStudyChatExpandedChange,
 }: AppWorkspaceProps) {
   return (
     <Tabs
@@ -110,6 +112,7 @@ export function AppWorkspace({
             activeSection={activeSection}
             onAddStudyTopic={onAddStudyTopic}
             onSaveSectionQuiz={onSaveSectionQuiz}
+            onChatExpandedChange={onStudyChatExpandedChange}
           />
         )}
       </TabsContent>

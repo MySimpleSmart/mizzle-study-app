@@ -270,6 +270,11 @@ export default function Home() {
     setMetaDialogOpen(false);
   };
 
+  const handleStudyChatExpandedChange = useCallback((expanded: boolean) => {
+    if (!expanded) return;
+    setSidebarCollapsed(true);
+  }, []);
+
   return (
     <div className="flex h-screen flex-col">
       <TopHeader />
@@ -442,6 +447,7 @@ export default function Home() {
                   workspaceTab={workspaceTab}
                   onWorkspaceTabChange={setWorkspaceTab}
                   savedQuizRemoteRefreshToken={savedQuizRemoteRefreshToken}
+                  onStudyChatExpandedChange={handleStudyChatExpandedChange}
                 />
               </main>
             </div>

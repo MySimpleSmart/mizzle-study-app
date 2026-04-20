@@ -55,6 +55,7 @@ interface StudyTabProps {
   onSaveSectionQuiz: (
     data: Omit<SavedQuizSnapshot, "id"> & { id?: string }
   ) => void;
+  onChatExpandedChange?: (expanded: boolean) => void;
 }
 
 type ChatMessage = {
@@ -186,6 +187,7 @@ export function StudyTab({
   activeSection,
   onAddStudyTopic,
   onSaveSectionQuiz,
+  onChatExpandedChange,
 }: StudyTabProps) {
   const [addOpen, setAddOpen] = useState(false);
   const [allTopicsOpen, setAllTopicsOpen] = useState(false);
@@ -468,6 +470,10 @@ export function StudyTab({
     const id = window.setTimeout(() => setChatActionMessage(""), 1800);
     return () => window.clearTimeout(id);
   }, [chatActionMessage]);
+
+  useEffect(() => {
+    onChatExpandedChange?.(chatExpanded);
+  }, [chatExpanded, onChatExpandedChange]);
 
   useEffect(() => {
     const content = studyContentRef.current;
