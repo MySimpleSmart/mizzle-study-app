@@ -7,6 +7,17 @@ import { AppWorkspace } from "@/components/app-workspace";
 import { ClientOnly } from "@/components/client-only";
 import { TopHeader } from "@/components/top-header";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Pencil, Tag } from "lucide-react";
+import {
   aiBriefVariants,
   sampleSources,
   sampleTopics,
@@ -43,6 +54,13 @@ export default function Home() {
   /** Section currently driving the main workspace; edits (e.g. add topic) sync to this card */
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState("study");
+  const [studyTitle, setStudyTitle] = useState("Introduction to Machine Learning");
+  const [editingStudyTitle, setEditingStudyTitle] = useState(false);
+  const [studyCategory, setStudyCategory] = useState("Machine Learning");
+  const [studyTags, setStudyTags] = useState<string[]>(["CS229", "Exam Prep"]);
+  const [metaDialogOpen, setMetaDialogOpen] = useState(false);
+  const [draftCategory, setDraftCategory] = useState("");
+  const [draftTags, setDraftTags] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [savedQuizRemoteRefreshToken, setSavedQuizRemoteRefreshToken] =
     useState(0);
@@ -55,6 +73,12 @@ export default function Home() {
     }
     setWorkspaceTab("study");
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!metaDialogOpen) return;
+    setDraftCategory(studyCategory);
+    setDraftTags(studyTags.join(", "));
+  }, [metaDialogOpen, studyCategory, studyTags]);
 
   const activeSections = useMemo(
     () => sections.filter((s) => !s.archived),
@@ -235,6 +259,17 @@ export default function Home() {
     );
   };
 
+  const saveStudyMeta = () => {
+    const category = draftCategory.trim() || "Uncategorized";
+    const tags = draftTags
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    setStudyCategory(category);
+    setStudyTags([...new Set(tags)]);
+    setMetaDialogOpen(false);
+  };
+
   return (
     <div className="flex h-screen flex-col">
       <TopHeader />
@@ -243,18 +278,120 @@ export default function Home() {
         <div className="flex h-full max-h-[850px] w-full max-w-7xl flex-col overflow-hidden rounded-2xl border bg-white shadow-sm">
           <div className="flex h-11 shrink-0 items-center justify-between border-b px-5">
             <div className="flex items-center gap-1">
-              <h1 className="text-sm font-medium">
-                Introduction to Machine Learning
-              </h1>
+              {editingStudyTitle ? (
+                <input
+                  autoFocus
+                  value={studyTitle}
+                  onChange={(e) => setStudyTitle(e.target.value)}
+                  onBlur={() => {
+                    setStudyTitle((title) => title.trim() || "Untitled Study");
+                    setEditingStudyTitle(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      setStudyTitle((title) => title.trim() || "Untitled Study");
+                      setEditingStudyTitle(false);
+                    }
+                    if (e.key === "Escape") {
+                      setEditingStudyTitle(false);
+                    }
+                  }}
+                  className="h-7 w-[18rem] rounded-md border border-input bg-background px-2 text-sm font-medium outline-none focus-visible:border-ring/70 focus-visible:ring-1 focus-visible:ring-ring/25"
+                  aria-label="Study title"
+                />
+              ) : (
+                <>
+                  <h1 className="text-sm font-medium">{studyTitle}</h1>
+                  <button
+                    type="button"
+                    onClick={() => setEditingStudyTitle(true)}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    aria-label="Edit study title"
+                    title="Edit study title"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
               <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
                 6 topics
               </span>
             </div>
 
-            <span className="text-xs text-muted-foreground">
-              Last updated {headerLastUpdated}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                {studyCategory}
+              </span>
+              {studyTags.slice(0, 2).map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-muted/70 px-2 py-0.5 text-xs text-muted-foreground"
+                >
+                  #{tag}
+                </span>
+              ))}
+              {studyTags.length > 2 && (
+                <span className="rounded-full bg-muted/70 px-2 py-0.5 text-xs text-muted-foreground">
+                  +{studyTags.length - 2}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setMetaDialogOpen(true)}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label="Edit category and tags"
+                title="Edit category and tags"
+              >
+                <Tag className="h-3.5 w-3.5" />
+              </button>
+              <span className="ml-2 text-xs text-muted-foreground">
+                Last updated {headerLastUpdated}
+              </span>
+            </div>
           </div>
+
+          <Dialog open={metaDialogOpen} onOpenChange={setMetaDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Study category and tags</DialogTitle>
+                <DialogDescription>
+                  Assign a category and tags for this whole study section.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium text-foreground">Category</p>
+                  <Input
+                    value={draftCategory}
+                    onChange={(e) => setDraftCategory(e.target.value)}
+                    placeholder="e.g. Machine Learning"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium text-foreground">
+                    Tags (comma separated)
+                  </p>
+                  <Input
+                    value={draftTags}
+                    onChange={(e) => setDraftTags(e.target.value)}
+                    placeholder="e.g. CS229, Midterm, Revision"
+                  />
+                </div>
+              </div>
+              <DialogFooter className="mt-2 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setMetaDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button type="button" onClick={saveStudyMeta}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           <ClientOnly
             fallback={

@@ -29,12 +29,19 @@ import {
   CornerDownRight,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  FileText,
   Layers,
+  Maximize2,
   MessageCircle,
+  Minimize2,
   Highlighter,
   Plus,
+  ArrowRight,
   SendHorizontal,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   User,
 } from "lucide-react";
 
@@ -181,6 +188,7 @@ export function StudyTab({
   onSaveSectionQuiz,
 }: StudyTabProps) {
   const [addOpen, setAddOpen] = useState(false);
+  const [allTopicsOpen, setAllTopicsOpen] = useState(false);
   const [enhanceTopicId, setEnhanceTopicId] = useState<string | null>(null);
   /** Per-topic, which enhance demos are shown under the study body */
   const [topicDemos, setTopicDemos] = useState<
@@ -198,6 +206,12 @@ export function StudyTab({
     {}
   );
   const [selectionActionMessage, setSelectionActionMessage] = useState("");
+  const [chatActionMessage, setChatActionMessage] = useState("");
+  const [chatExpanded, setChatExpanded] = useState(false);
+  const [chatFeedback, setChatFeedback] = useState<
+    Record<string, "up" | "down" | null>
+  >({});
+  const studyScrollHostRef = useRef<HTMLDivElement | null>(null);
   const studyArticleRef = useRef<HTMLElement | null>(null);
   const studyContentRef = useRef<HTMLDivElement | null>(null);
   const chatSectionRef = useRef<HTMLElement | null>(null);
@@ -215,8 +229,12 @@ export function StudyTab({
       selectedTopicData.filter((t) => Boolean(sampleStudyContent[t.id])),
     [selectedTopicData]
   );
+  const headerTopics = useMemo(() => selectedTopicData.slice(0, 3), [selectedTopicData]);
+  const hiddenTopicsCount = Math.max(0, selectedTopicData.length - headerTopics.length);
 
   const [activeTopicIndex, setActiveTopicIndex] = useState(0);
+  const [topicVisible, setTopicVisible] = useState(true);
+  const hasMountedRef = useRef(false);
 
   useEffect(() => {
     setActiveTopicIndex((i) => {
@@ -224,6 +242,16 @@ export function StudyTab({
       return Math.min(i, Math.max(0, topicsWithContent.length - 1));
     });
   }, [topicsWithContent.length, topicsWithContent]);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    setTopicVisible(false);
+    const id = window.setTimeout(() => setTopicVisible(true), 80);
+    return () => window.clearTimeout(id);
+  }, [activeTopicIndex]);
 
   if (studyTopicIds.length === 0) {
     return (
@@ -395,11 +423,51 @@ export function StudyTab({
     clearSelectionUi();
   };
 
+  const handleSaveChatMessageToNote = (msg: ChatMessage) => {
+    const content = msg.text.trim();
+    if (!content) return;
+    const roleLabel = msg.role === "assistant" ? "Tutor reply" : "My chat message";
+    appendStudyNote({
+      id: `note-${Date.now()}-${msg.id}`,
+      content: `<p><strong>${escapeHtml(roleLabel)} · ${escapeHtml(currentTopic.name)}</strong></p><blockquote><p>${escapeHtml(content)}</p></blockquote>`,
+      createdAt: new Date().toISOString(),
+      topicIds: [currentTopic.id],
+    });
+    setChatActionMessage("Saved to notes.");
+  };
+
+  const handleCopyChatMessage = async (msg: ChatMessage) => {
+    const content = msg.text.trim();
+    if (!content) return;
+    try {
+      await navigator.clipboard.writeText(content);
+      setChatActionMessage("Copied to clipboard.");
+    } catch {
+      setChatActionMessage("Copy failed. Please try again.");
+    }
+  };
+
+  const handleFeedback = (msgId: string, value: "up" | "down") => {
+    setChatFeedback((prev) => ({
+      ...prev,
+      [msgId]: prev[msgId] === value ? null : value,
+    }));
+    setChatActionMessage(
+      value === "up" ? "Marked as good response." : "Marked as bad response."
+    );
+  };
+
   useEffect(() => {
     if (!selectionActionMessage) return;
     const id = window.setTimeout(() => setSelectionActionMessage(""), 1800);
     return () => window.clearTimeout(id);
   }, [selectionActionMessage]);
+
+  useEffect(() => {
+    if (!chatActionMessage) return;
+    const id = window.setTimeout(() => setChatActionMessage(""), 1800);
+    return () => window.clearTimeout(id);
+  }, [chatActionMessage]);
 
   useEffect(() => {
     const content = studyContentRef.current;
@@ -420,40 +488,86 @@ export function StudyTab({
     };
   }, []);
 
+  useEffect(() => {
+    const host = studyScrollHostRef.current;
+    if (!host) return;
+    const viewport = host.querySelector<HTMLElement>(
+      '[data-slot="scroll-area-viewport"]'
+    );
+    viewport?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTopicIndex, currentTopic.id]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 border-b bg-white px-6 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              <Layers className="h-3.5 w-3.5 shrink-0" />
-              Topics in this study
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2 border-t border-border/50 pt-3">
-              {selectedTopicData.map((topic) => (
-                <Badge
-                  key={topic.id}
-                  variant="secondary"
-                  className="font-normal text-foreground"
-                >
-                  {topic.name}
-                </Badge>
-              ))}
-            </div>
-          </div>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="shrink-0 gap-1.5"
-            disabled={addableTopics.length === 0}
-            onClick={() => setAddOpen(true)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add topic
-          </Button>
+      {!chatExpanded && (
+        <div className="flex shrink-0 items-center gap-3 border-b bg-background px-6 py-2">
+        <div className="shrink-0 items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground sm:flex sm:text-xs">
+          <span className="inline-flex items-center gap-2">
+            <Layers className="h-3.5 w-3.5 shrink-0" />
+            Topics in this study
+          </span>
         </div>
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5 overflow-hidden py-0.5">
+            {headerTopics.map((topic) => (
+              <Badge
+                key={topic.id}
+                variant="secondary"
+                className="h-6 px-2.5 text-xs font-normal text-foreground"
+              >
+                {topic.name}
+              </Badge>
+            ))}
+            {hiddenTopicsCount > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 rounded-full px-2 text-xs"
+                onClick={() => setAllTopicsOpen(true)}
+                aria-label={`Show ${hiddenTopicsCount} more topics`}
+                title="Show all topics"
+              >
+                +{hiddenTopicsCount}
+              </Button>
+            )}
+          </div>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
+          disabled={addableTopics.length === 0}
+          onClick={() => setAddOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add topic
+        </Button>
+        </div>
+      )}
+
+      <Dialog open={allTopicsOpen} onOpenChange={setAllTopicsOpen}>
+        <DialogContent className="sm:max-w-md" showCloseButton>
+          <DialogHeader>
+            <DialogTitle>All topics in this study</DialogTitle>
+            <DialogDescription>
+              {selectedTopicData.length} topic{selectedTopicData.length === 1 ? "" : "s"} in this study.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex max-h-72 flex-wrap gap-2 overflow-y-auto pr-1">
+            {selectedTopicData.map((topic) => (
+              <Badge
+                key={topic.id}
+                variant="secondary"
+                className="h-6 px-2.5 text-xs font-normal text-foreground"
+              >
+                {topic.name}
+              </Badge>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md" showCloseButton>
@@ -511,14 +625,25 @@ export function StudyTab({
         }}
       />
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="p-6">
-          <article
+      <div ref={studyScrollHostRef} className="flex min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1">
+          <div
+            className={cn(
+              chatExpanded ? "flex h-full min-h-0 flex-col p-0" : "p-6"
+            )}
+          >
+            {!chatExpanded && (
+              <article
             key={currentTopic.id}
             ref={studyArticleRef}
             onMouseUp={captureSelectedExcerpt}
             onKeyUp={captureSelectedExcerpt}
-            className="rounded-xl border bg-white px-6 pt-4 pb-6"
+            className={cn(
+              "rounded-xl border bg-white px-6 pt-4 pb-6 transition-all duration-300 ease-out",
+              topicVisible
+                ? "translate-y-0 opacity-100"
+                : "translate-y-2 opacity-0"
+            )}
           >
             <div className="mb-4 flex items-start justify-between gap-3 border-b border-border/60 pb-3">
               <h2 className="min-w-0 text-base font-semibold leading-snug text-foreground">
@@ -581,94 +706,217 @@ export function StudyTab({
                 </ul>
               </div>
             )}
-          </article>
+              </article>
+            )}
 
-          {activeSection && (
-            <div className="mt-6">
-              <SectionMiniQuiz
-                section={activeSection}
-                onSaveSectionQuiz={onSaveSectionQuiz}
-              />
-            </div>
-          )}
+            {!chatExpanded && activeSection && (
+              <div className="mt-6">
+                <SectionMiniQuiz
+                  section={activeSection}
+                  onSaveSectionQuiz={onSaveSectionQuiz}
+                />
+              </div>
+            )}
 
-          <section ref={chatSectionRef} className="mt-6 rounded-xl border bg-white">
+            <section
+              ref={chatSectionRef}
+              className={cn(
+                "flex flex-col overflow-hidden bg-white transition-[height] duration-200 ease-out",
+                chatExpanded
+                  ? "min-h-0 flex-1 rounded-none border-0"
+                  : "mt-6 h-[clamp(420px,56vh,620px)] rounded-xl border"
+              )}
+            >
             <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
               <MessageCircle className="h-4 w-4 text-primary" />
               <h3 className="text-sm font-semibold text-foreground">
                 Follow-up chat for this topic
               </h3>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 gap-1.5 px-2 text-xs"
+                onClick={() => setChatExpanded((v) => !v)}
+                aria-label={chatExpanded ? "Collapse chat area" : "Expand chat area"}
+                title={chatExpanded ? "Collapse chat area" : "Expand chat area"}
+              >
+                {chatExpanded ? (
+                  <>
+                    <Minimize2 className="h-3.5 w-3.5" />
+                    Collapse
+                  </>
+                ) : (
+                  <>
+                    <Maximize2 className="h-3.5 w-3.5" />
+                    Expand
+                  </>
+                )}
+              </Button>
             </div>
 
-            <div className="space-y-3 px-4 py-4">
-              {currentTopicMessages.length === 0 && (
-                <div
-                  className={cn(
-                    "space-y-3 transition-opacity duration-200 ease-out",
-                    isTyping
-                      ? "pointer-events-none opacity-0"
-                      : "opacity-100"
+            <div className="flex min-h-0 flex-1 flex-col">
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-3 px-4 py-4">
+                  {currentTopicMessages.length === 0 && (
+                    <div
+                      className={cn(
+                        "space-y-3 transition-opacity duration-200 ease-out",
+                        isTyping
+                          ? "pointer-events-none opacity-0"
+                          : "opacity-100"
+                      )}
+                    >
+                      <p className="text-sm text-muted-foreground">
+                        Ask a follow-up question about{" "}
+                        <span className="font-medium text-foreground">
+                          {currentTopic.name}
+                        </span>
+                        , or use one of these suggestions:
+                      </p>
+                      <ul className="rounded-lg border border-border/70">
+                        {followUpSuggestions.map((suggestion, idx) => (
+                          <li key={suggestion}>
+                            <button
+                              type="button"
+                              onClick={() => sendFollowUp(suggestion)}
+                              className={cn(
+                                "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/50",
+                                idx !== followUpSuggestions.length - 1 &&
+                                  "border-b border-border/60"
+                              )}
+                            >
+                              <span className="inline-flex items-start gap-2">
+                                <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                <span>{suggestion}</span>
+                              </span>
+                              {idx === 0 && (
+                                <span className="shrink-0 text-[11px] text-muted-foreground">
+                                  Suggested
+                                </span>
+                              )}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
-                >
-                  <p className="text-sm text-muted-foreground">
-                    Ask a follow-up question about{" "}
-                    <span className="font-medium text-foreground">
-                      {currentTopic.name}
-                    </span>
-                    , or use one of these suggestions:
-                  </p>
-                  <ul className="rounded-lg border border-border/70">
-                    {followUpSuggestions.map((suggestion, idx) => (
-                      <li key={suggestion}>
+
+                  {currentTopicMessages.length > 0 && (
+                    <div className="space-y-2">
+                      {currentTopicMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className="flex items-start gap-2 rounded-lg border border-border/70 bg-background px-3 py-2"
+                        >
+                          {msg.role === "assistant" ? (
+                            <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                          ) : (
+                            <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                              {msg.role === "assistant" ? "Tutor" : "You"}
+                            </p>
+                            <p className="text-sm text-foreground">{msg.text}</p>
+                            {msg.role === "assistant" && (
+                              <div className="mt-1.5 flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveChatMessageToNote(msg)}
+                                  className="inline-flex h-6 items-center gap-1 rounded-md border border-primary/25 px-2 text-[11px] font-medium text-primary transition-colors hover:bg-primary/10 hover:text-primary"
+                                >
+                                  <FileText className="h-3 w-3" />
+                                  Save to note
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleCopyChatMessage(msg)}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-primary/25 text-primary transition-colors hover:bg-primary/10 hover:text-primary"
+                                  aria-label="Copy result text"
+                                  title="Copy result text"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFeedback(msg.id, "up")}
+                                  className={cn(
+                                    "inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors",
+                                    chatFeedback[msg.id] === "up"
+                                      ? "border-emerald-300 bg-emerald-50 text-emerald-600"
+                                      : "border-primary/25 text-primary hover:bg-primary/10 hover:text-primary"
+                                  )}
+                                  aria-label="Mark good response"
+                                  title="Good response"
+                                  aria-pressed={chatFeedback[msg.id] === "up"}
+                                >
+                                  <ThumbsUp className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleFeedback(msg.id, "down")}
+                                  className={cn(
+                                    "inline-flex h-6 w-6 items-center justify-center rounded-md border transition-colors",
+                                    chatFeedback[msg.id] === "down"
+                                      ? "border-rose-300 bg-rose-50 text-rose-600"
+                                      : "border-primary/25 text-primary hover:bg-primary/10 hover:text-primary"
+                                  )}
+                                  aria-label="Mark bad response"
+                                  title="Bad response"
+                                  aria-pressed={chatFeedback[msg.id] === "down"}
+                                >
+                                  <ThumbsDown className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {currentTopicMessages.length > 0 && (
+                    <div
+                      className={cn(
+                        "rounded-lg border border-border/70 transition-opacity duration-200 ease-out",
+                        isTyping
+                          ? "pointer-events-none opacity-0"
+                          : "opacity-100"
+                      )}
+                    >
+                      {postChatSuggestions.map((suggestion, idx) => (
                         <button
+                          key={suggestion}
                           type="button"
                           onClick={() => sendFollowUp(suggestion)}
                           className={cn(
-                            "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted/50",
-                            idx !== followUpSuggestions.length - 1 &&
+                            "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
+                            idx !== postChatSuggestions.length - 1 &&
                               "border-b border-border/60"
                           )}
                         >
-                          <span className="inline-flex items-start gap-2">
-                            <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span>{suggestion}</span>
-                          </span>
-                          {idx === 0 && (
-                            <span className="shrink-0 text-[11px] text-muted-foreground">
-                              Suggested
-                            </span>
-                          )}
+                          <CornerDownRight className="h-3.5 w-3.5 shrink-0" />
+                          <span>{suggestion}</span>
                         </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {currentTopicMessages.length > 0 && (
-                <div className="space-y-2">
-                  {currentTopicMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className="flex items-start gap-2 rounded-lg border border-border/70 bg-background px-3 py-2"
-                    >
-                      {msg.role === "assistant" ? (
-                        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                      ) : (
-                        <User className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      )}
-                      <div>
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {msg.role === "assistant" ? "Tutor" : "You"}
-                        </p>
-                        <p className="text-sm text-foreground">{msg.text}</p>
-                      </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              )}
+              </ScrollArea>
 
-              <div className="relative">
+              <div className="shrink-0 border-t border-border/60 px-4 py-3">
+                {chatActionMessage && (
+                  <p className="mb-2 text-xs text-muted-foreground">
+                    {chatActionMessage}
+                  </p>
+                )}
+                <div
+                  className={cn(
+                    "flex min-h-[64px] items-center rounded-xl border border-input bg-background pl-3 pr-2 transition-[border,box-shadow]",
+                    "focus-within:border-ring/70 focus-within:ring-1 focus-within:ring-ring/25"
+                  )}
+                >
                 <textarea
                   ref={chatInputRef}
                   value={draftQuestion}
@@ -680,50 +928,30 @@ export function StudyTab({
                   }}
                   placeholder={`Ask about ${currentTopic.name}...`}
                   rows={2}
-                  className="min-h-[64px] w-full rounded-xl border border-input bg-background py-3 pr-14 pl-3 text-sm outline-none ring-offset-background transition-[border,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring/70 focus-visible:ring-1 focus-visible:ring-ring/25"
+                  className="h-10 w-full flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2.5 pr-3 text-sm leading-5 outline-none placeholder:text-muted-foreground [scrollbar-width:thin] [scrollbar-color:rgb(0_0_0_/_0.15)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/15 [&::-webkit-scrollbar-thumb:hover]:bg-foreground/25 [&::-webkit-scrollbar-track]:bg-transparent"
                 />
                 <Button
                   type="button"
-                  size="icon-sm"
-                  className="absolute right-2 bottom-2"
+                  size="icon"
+                  className={cn(
+                    "h-10 w-10 shrink-0 rounded-full shadow-none",
+                    draftQuestion.trim()
+                      ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  )}
                   onClick={() => sendFollowUp()}
                   disabled={!draftQuestion.trim()}
                   aria-label="Send follow-up message"
                 >
-                  <SendHorizontal className="h-3.5 w-3.5" />
+                  <ArrowRight className="h-5 w-5" />
                 </Button>
-              </div>
-
-              {currentTopicMessages.length > 0 && (
-                <div
-                  className={cn(
-                    "rounded-lg border border-border/70 transition-opacity duration-200 ease-out",
-                    isTyping
-                      ? "pointer-events-none opacity-0"
-                      : "opacity-100"
-                  )}
-                >
-                  {postChatSuggestions.map((suggestion, idx) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => sendFollowUp(suggestion)}
-                      className={cn(
-                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground",
-                        idx !== postChatSuggestions.length - 1 &&
-                          "border-b border-border/60"
-                      )}
-                    >
-                      <CornerDownRight className="h-3.5 w-3.5 shrink-0" />
-                      <span>{suggestion}</span>
-                    </button>
-                  ))}
                 </div>
-              )}
+              </div>
             </div>
           </section>
         </div>
-      </ScrollArea>
+        </ScrollArea>
+      </div>
 
       {selectedExcerpt && selectionToolbarPos && (
         <div
